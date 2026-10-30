@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manage Projects</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 600px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  form { display: flex; gap: .5rem; margin: 1rem 0; }
+  input[type=text] { flex: 1; font-size: 1rem; padding: .4rem; }
+  button { cursor: pointer; border: 1px solid #888; background: #f4f4f4; border-radius: 4px; padding: .3rem .7rem; font-size: 1rem; }
+  button:hover { background: #e6e6e6; }
+  .primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+  .primary:hover { background: #1d4ed8; }
+  .row { display: flex; align-items: center; gap: .75rem; padding: .5rem 0; border-bottom: 1px solid #eee; }
+  .swatch { width: 14px; height: 14px; border-radius: 3px; flex: none; }
+  .pname { flex: 1; }
+  .inactive .pname { color: #999; text-decoration: line-through; }
+  .note { color: #666; font-size: .9rem; }
+  #status { min-height: 1.2rem; font-size: .9rem; color: #b91c1c; }
+  #status.ok { color: #15803d; }
+</style>
+</head>
+<body>
+<h1>Manage Projects</h1>
+<p class="note">Projects added here appear in the timesheet dropdown. Deactivating a project hides it from the dropdown but keeps existing hours.</p>
+
+<form id="form">
+  <input type="text" id="name" placeholder="New project name" maxlength="100" autocomplete="off" required>
+  <button class="primary" type="submit">+ Add project</button>
+</form>
+<div id="status"></div>
+<div id="list"></div>
+
+<script>
+const BASE = 'https://joneetwkkgrqbxwhunut.supabase.co/rest/v1/ts_projects';
+const KEY = 'sb_publishable_cjj3_AVozweyDGy2qqVP0Q_jMHFmnfk';
+const PALETTE = ['#2563eb', '#dc2626', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#db2777', '#65a30d', '#4f46e5', '#ea580c'];
+const headers = { apikey: KEY, Authorization: 'Bearer ' + KEY, 'Content-Type': 'application/json' };
+let projects = [];
+const sortProjects = () => projects.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+
+const $ = id => document.getElementById(id);
+function say(msg, ok) { $('status').textContent = msg; $('status').className = ok ? 'ok' : ''; }
+
+async function api(path, opts = {}) {
+  const res = await fetch(BASE + path, { ...opts, headers: { ...headers, ...(opts.headers || {}) } });
+  if (!res.ok) {
+    const t = await res.text();
+    if (res.status === 409) throw new Error('A project with that name already exists.');
+    throw new Error(t);
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+function render() {
+  const list = $('list');
+  list.innerHTML = '';
+  projects.forEach((p, i) => {
+    const row = document.createElement('div');
+    row.className = 'row' + (p.active ? '' : ' inactive');
+    row.innerHTML = '<span class="swatch"></span><span class="pname"></span><button></button>';
+    row.querySelector('.swatch').style.background = PALETTE[i % PALETTE.length];
+    row.querySelector('.pname').textContent = p.name;
+    const btn = row.querySelector('button');
+    btn.textContent = p.active ? 'Deactivate' : 'Reactivate';
+    btn.onclick = async () => {
+      try {
+        await api('?id=eq.' + p.id, { method: 'PATCH', body: JSON.stringify({ active: !p.active }) });
+        p.active = !p.active;
+        say('');
+        render();
+      } catch (e) { say('Update failed: ' + e.message); }
+    };
+    list.appendChild(row);
+  });
+}
+
+$('form').onsubmit = async e => {
+  e.preventDefault();
+  const name = $('name').value.trim();
+  if (!name) return;
+  if (projects.some(p => p.name.toLowerCase() === name.toLowerCase())) { say('A project with that name already exists.'); return; }
+  try {
+    const [row] = await api('', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ name }) });
+    projects.push(row);
+    sortProjects();
+    $('name').value = '';
+    say('Added "' + row.name + '".', true);
+    render();
+  } catch (err) { say('Add failed: ' + err.message); }
+};
+
+(async () => {
+  try {
+    projects = await api('?select=id,name,active');
+    sortProjects();
+    render();
+  } catch (e) { say('Load failed: ' + e.message); }
+})();
+</script>
+</body>
+</html>

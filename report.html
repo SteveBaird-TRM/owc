@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monthly Hours Report</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 1000px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  .pick { display: flex; gap: .5rem; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
+  input[type=month] { font-size: 1rem; padding: .3rem; }
+  button { cursor: pointer; border: 1px solid #888; background: #f4f4f4; border-radius: 4px; padding: .3rem .7rem; font-size: 1rem; }
+  button:hover { background: #e6e6e6; }
+  #status { min-height: 1.2rem; font-size: .9rem; color: #b91c1c; }
+  .legend { display: flex; flex-wrap: wrap; gap: .4rem 1rem; margin: .5rem 0 1rem; font-size: .9rem; }
+  .legend span { display: inline-flex; align-items: center; gap: .35rem; }
+  .sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .staffrow { display: grid; grid-template-columns: 160px 1fr 70px; gap: .75rem; align-items: center; padding: .4rem 0; border-bottom: 1px solid #eee; }
+  .staffrow .name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .staffrow .none { color: #999; font-style: italic; }
+  .staffrow .tot { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .bar { position: relative; display: flex; height: 22px; background: #e5e7eb; border-radius: 4px; overflow: hidden; }
+  .bar::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+    background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(5% - 1px), rgba(0,0,0,.15) calc(5% - 1px), rgba(0,0,0,.15) 5%); }
+  .bar > div { height: 100%; }
+  h2 { margin-top: 2rem; font-size: 1.1rem; }
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { padding: .4rem .6rem; border-bottom: 1px solid #eee; text-align: right; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  thead th { background: #f8fafc; }
+  tfoot td { font-weight: 700; border-top: 2px solid #ccc; }
+  td.zero { color: #bbb; }
+  td.rt, th.rt { font-weight: 700; background: #f8fafc; }
+</style>
+</head>
+<body>
+<h1>Monthly Hours Report</h1>
+<div class="pick">
+  <button id="prev" title="Previous month">◀</button>
+  <input type="month" id="month">
+  <button id="next" title="Next month">▶</button>
+  <button id="refresh">Refresh</button>
+</div>
+<div id="status"></div>
+<div class="legend" id="legend"></div>
+<div id="bars"></div>
+<h2>Hours by staff and project</h2>
+<div class="tablewrap"><table id="grid"></table></div>
+
+<script>
+const BASE = 'https://joneetwkkgrqbxwhunut.supabase.co/rest/v1/';
+const KEY = 'sb_publishable_cjj3_AVozweyDGy2qqVP0Q_jMHFmnfk';
+const MAX = 160;
+const PALETTE = ['#2563eb', '#dc2626', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#db2777', '#65a30d', '#4f46e5', '#ea580c'];
+const headers = { apikey: KEY, Authorization: 'Bearer ' + KEY };
+
+const $ = id => document.getElementById(id);
+const esc = t => { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; };
+
+async function api(path) {
+  const res = await fetch(BASE + path, { headers });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+let staff = [], projects = [];
+
+function shiftMonth(delta) {
+  const [y, m] = $('month').value.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  $('month').value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  load();
+}
+
+async function load() {
+  const month = $('month').value;
+  if (!month) return;
+  try {
+    const entries = await api(`ts_entries?select=staff_id,project_id,hours&month=eq.${month}-01`);
+    $('status').textContent = '';
+    render(entries);
+  } catch (e) { $('status').textContent = 'Load failed: ' + e.message; }
+}
+
+function render(entries) {
+  const colorOf = id => PALETTE[projects.findIndex(p => p.id === id) % PALETTE.length];
+  const hours = {}; // staff_id -> project_id -> hours
+  for (const e of entries) {
+    (hours[e.staff_id] ||= {})[e.project_id] = e.hours;
+  }
+  const usedProjects = projects.filter(p => entries.some(e => e.project_id === p.id));
+  const staffTotal = s => Object.values(hours[s.id] || {}).reduce((a, b) => a + b, 0);
+  const projTotal = p => staff.reduce((a, s) => a + ((hours[s.id] || {})[p.id] || 0), 0);
+  const grand = entries.reduce((a, e) => a + e.hours, 0);
+
+  $('legend').innerHTML = usedProjects.map(p =>
+    `<span><i class="sw" style="background:${colorOf(p.id)}"></i>${esc(p.name)}</span>`).join('');
+
+  const scale = Math.max(MAX, ...staff.map(staffTotal));
+  const bars = $('bars');
+  bars.innerHTML = '';
+  for (const s of staff) {
+    const row = document.createElement('div');
+    row.className = 'staffrow';
+    const has = hours[s.id];
+    row.innerHTML = '<div class="name"></div><div class="bar"></div><div class="tot"></div>';
+    row.querySelector('.name').textContent = s.name;
+    row.querySelector('.tot').textContent = staffTotal(s) + ' h';
+    const bar = row.querySelector('.bar');
+    bar.style.setProperty('--x', '');
+    if (!has) {
+      bar.style.background = 'transparent';
+      bar.innerHTML = '<span class="none">nothing submitted</span>';
+      bar.style.overflow = 'visible';
+    } else {
+      for (const p of projects) {
+        const h = has[p.id];
+        if (!h) continue;
+        const seg = document.createElement('div');
+        seg.style.width = (h / scale * 100) + '%';
+        seg.style.background = colorOf(p.id);
+        seg.title = p.name + ': ' + h + ' h';
+        bar.appendChild(seg);
+      }
+    }
+    bars.appendChild(row);
+  }
+  if (!staff.length) bars.innerHTML = '<p>No staff yet.</p>';
+
+  const grid = $('grid');
+  if (!usedProjects.length) {
+    grid.innerHTML = '<tbody><tr><td>No hours recorded for this month.</td></tr></tbody>';
+    return;
+  }
+  let html = '<thead><tr><th>Staff</th>' +
+    usedProjects.map(p => `<th>${esc(p.name)}</th>`).join('') + '<th class="rt">Total</th></tr></thead><tbody>';
+  for (const s of staff) {
+    html += `<tr><td>${esc(s.name)}</td>` + usedProjects.map(p => {
+      const h = (hours[s.id] || {})[p.id] || 0;
+      return `<td class="${h ? '' : 'zero'}">${h || '–'}</td>`;
+    }).join('') + `<td class="rt">${staffTotal(s)}</td></tr>`;
+  }
+  html += '</tbody><tfoot><tr><td>Total</td>' +
+    usedProjects.map(p => `<td>${projTotal(p)}</td>`).join('') + `<td>${grand}</td></tr></tfoot>`;
+  grid.innerHTML = html;
+}
+
+$('prev').onclick = () => shiftMonth(-1);
+$('next').onclick = () => shiftMonth(1);
+$('refresh').onclick = load;
+$('month').onchange = load;
+
+(async () => {
+  const d = new Date();
+  $('month').value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  try {
+    [staff, projects] = await Promise.all([
+      api('ts_staff?select=id,name&order=name'),
+      api('ts_projects?select=id,name')
+    ]);
+    projects.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    load();
+  } catch (e) { $('status').textContent = 'Load failed: ' + e.message; }
+})();
+</script>
+</body>
+</html>

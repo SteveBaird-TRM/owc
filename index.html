@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monthly Timesheet</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  h1 { margin-bottom: .5rem; }
+  .pick { display: flex; flex-wrap: wrap; gap: 1rem; align-items: end; margin-bottom: 1rem; }
+  .pick label { display: flex; flex-direction: column; font-size: .85rem; color: #555; gap: .2rem; }
+  select, input[type=month] { font-size: 1rem; padding: .3rem; }
+  button { cursor: pointer; border: 1px solid #888; background: #f4f4f4; border-radius: 4px; padding: .3rem .7rem; font-size: 1rem; }
+  button:hover:not(:disabled) { background: #e6e6e6; }
+  button:disabled { opacity: .5; cursor: default; }
+  .primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+  .primary:hover:not(:disabled) { background: #1d4ed8; }
+  .linkbtn { border: none; background: none; color: #2563eb; padding: 0; font-size: .9rem; text-decoration: underline; }
+  .addrow { display: flex; gap: .5rem; margin: 1rem 0; }
+  .row { display: grid; grid-template-columns: 160px 1fr auto auto; gap: .75rem; align-items: center; padding: .5rem 0; border-bottom: 1px solid #eee; }
+  .name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar { position: relative; height: 22px; background: #e5e7eb; border-radius: 4px; overflow: hidden; cursor: pointer; touch-action: none; }
+  .bar::after, .sumbar::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+    background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(var(--step, 5%) - 1px), rgba(0,0,0,.15) calc(var(--step, 5%) - 1px), rgba(0,0,0,.15) var(--step, 5%)); }
+  .fill { height: 100%; width: 0; transition: width .1s; }
+  .barwrap { display: flex; align-items: center; gap: .4rem; }
+  .barwrap .bar { flex: 1; }
+  .hrs { min-width: 3.5rem; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .remove { color: #b91c1c; }
+  .sumrow { display: grid; grid-template-columns: 160px 1fr auto; gap: .75rem; align-items: center; padding: .75rem 0; }
+  .sumrow .name { font-weight: 700; }
+  .sumbar { position: relative; display: flex; height: 22px; background: #e5e7eb; border-radius: 4px; overflow: hidden; }
+  .sumbar > div { height: 100%; }
+  .sumlabel { min-width: 3.5rem; text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+  .submitrow { display: flex; gap: 1rem; align-items: center; margin-top: 1rem; }
+  #info { color: #555; font-size: .9rem; }
+  #status { min-height: 1.2rem; font-size: .9rem; color: #b91c1c; }
+  #status.ok { color: #15803d; }
+  #sheet[hidden] { display: none; }
+</style>
+</head>
+<body>
+<h1>Monthly Timesheet</h1>
+
+<div class="pick">
+  <label>Name
+    <select id="staff"></select>
+  </label>
+  <label>Month
+    <input type="month" id="month">
+  </label>
+  <button class="linkbtn" id="newStaff">+ My name isn't listed</button>
+</div>
+<div id="status"></div>
+
+<div id="sheet" hidden>
+  <div class="addrow">
+    <select id="projPick"></select>
+    <button id="addProj">+ Add project</button>
+  </div>
+  <div id="list"></div>
+  <div class="sumrow">
+    <div class="name">Total</div>
+    <div class="sumbar" id="sumbar"></div>
+    <div class="sumlabel" id="sumlabel">0 h</div>
+  </div>
+  <div class="submitrow">
+    <button class="primary" id="submit">Save</button>
+    <span id="info"></span>
+  </div>
+</div>
+
+<script>
+const BASE = 'https://joneetwkkgrqbxwhunut.supabase.co/rest/v1/';
+const KEY = 'sb_publishable_cjj3_AVozweyDGy2qqVP0Q_jMHFmnfk';
+const MAX = 160;
+const PALETTE = ['#2563eb', '#dc2626', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#db2777', '#65a30d', '#4f46e5', '#ea580c'];
+const headers = { apikey: KEY, Authorization: 'Bearer ' + KEY, 'Content-Type': 'application/json' };
+
+let staff = [];      // [{id, name}]
+let allProjects = []; // [{id, name, active}]
+const byName = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+const sortRows = () => rows.sort((a, b) => projName(a.project_id).localeCompare(projName(b.project_id), undefined, { sensitivity: 'base' }));
+let rows = [];       // [{project_id, hours}] working copy for the selected person/month
+let dirty = false;
+
+const $ = id => document.getElementById(id);
+const statusEl = $('status');
+
+function say(msg, ok) { statusEl.textContent = msg; statusEl.className = ok ? 'ok' : ''; }
+
+async function api(path, opts = {}) {
+  const res = await fetch(BASE + path, { ...opts, headers: { ...headers, ...(opts.headers || {}) } });
+  if (!res.ok) throw new Error(await res.text());
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} }
+};
+
+const projName = id => (allProjects.find(p => p.id === id) || {}).name || '?';
+const colorOf = id => PALETTE[Math.max(0, allProjects.findIndex(p => p.id === id)) % PALETTE.length];
+const monthStart = () => $('month').value + '-01';
+const staffId = () => +$('staff').value || null;
+
+function currentMonth() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+}
+
+function fillStaff(selectId) {
+  const sel = $('staff');
+  sel.innerHTML = '<option value="">— pick your name —</option>' +
+    staff.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+  if (selectId) sel.value = selectId;
+}
+
+function esc(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+
+function fillProjectPick() {
+  const used = new Set(rows.map(r => r.project_id));
+  const avail = allProjects.filter(p => p.active && !used.has(p.id));
+  $('projPick').innerHTML = avail.length
+    ? avail.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')
+    : '<option value="">(all projects added)</option>';
+  $('addProj').disabled = !avail.length;
+}
+
+function render() {
+  const list = $('list');
+  list.innerHTML = '';
+  for (const r of rows) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `
+      <div class="name"></div>
+      <div class="barwrap">
+        <button data-d="-1" title="Minus 1 hour">−</button>
+        <div class="bar" title="Drag to set hours"><div class="fill" style="width:${r.hours / MAX * 100}%;background:${colorOf(r.project_id)}"></div></div>
+        <button data-d="1" title="Plus 1 hour">+</button>
+      </div>
+      <span class="hrs">${r.hours} h</span>
+      <button class="remove" title="Remove project" aria-label="Remove project"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg></button>`;
+    const nm = row.querySelector('.name');
+    nm.textContent = projName(r.project_id);
+    nm.title = nm.textContent;
+
+    const bar = row.querySelector('.bar');
+    const fill = row.querySelector('.fill');
+    const label = row.querySelector('.hrs');
+    const set = h => {
+      r.hours = Math.max(0, Math.min(MAX, h));
+      fill.style.width = (r.hours / MAX * 100) + '%';
+      label.textContent = r.hours + ' h';
+      markDirty();
+      updateTotal();
+    };
+    row.querySelectorAll('.barwrap > button').forEach(b => b.onclick = () => set(r.hours + +b.dataset.d));
+    row.querySelector('.remove').onclick = () => {
+      rows = rows.filter(x => x !== r);
+      markDirty();
+      fillProjectPick();
+      render();
+    };
+    const hoursAt = e => {
+      const rect = bar.getBoundingClientRect();
+      return Math.round((e.clientX - rect.left) / rect.width * MAX);
+    };
+    let dragging = false;
+    bar.onpointerdown = e => { dragging = true; bar.setPointerCapture(e.pointerId); fill.style.transition = 'none'; set(hoursAt(e)); };
+    bar.onpointermove = e => { if (dragging) set(hoursAt(e)); };
+    bar.onpointerup = bar.onpointercancel = () => { dragging = false; fill.style.transition = ''; };
+    list.appendChild(row);
+  }
+  updateTotal();
+}
+
+function updateTotal() {
+  const total = rows.reduce((s, r) => s + r.hours, 0);
+  $('sumlabel').textContent = total + ' h';
+  const scale = Math.max(MAX, total);
+  const bar = $('sumbar');
+  bar.style.setProperty('--step', (8 / scale * 100) + '%');
+  bar.innerHTML = '';
+  for (const r of rows) {
+    if (!r.hours) continue;
+    const seg = document.createElement('div');
+    seg.style.width = (r.hours / scale * 100) + '%';
+    seg.style.background = colorOf(r.project_id);
+    seg.title = projName(r.project_id) + ': ' + r.hours + ' h';
+    bar.appendChild(seg);
+  }
+}
+
+function markDirty() {
+  dirty = true;
+  $('info').textContent = 'Unsaved changes — press Save to record them.';
+}
+
+async function loadSheet() {
+  const sid = staffId();
+  if (!sid || !$('month').value) { $('sheet').hidden = true; return; }
+  store.set('ts_staff', sid);
+  try {
+    const data = await api(`ts_entries?select=project_id,hours,updated_at&staff_id=eq.${sid}&month=eq.${monthStart()}&order=id`);
+    rows = data.map(d => ({ project_id: d.project_id, hours: d.hours }));
+    sortRows();
+    dirty = false;
+    const last = data.map(d => d.updated_at).sort().pop();
+    $('info').textContent = last ? 'Last saved ' + new Date(last).toLocaleString() : 'Nothing saved yet for this month.';
+    say('');
+    $('sheet').hidden = false;
+    fillProjectPick();
+    render();
+  } catch (e) { say('Load failed: ' + e.message); }
+}
+
+async function submit() {
+  const sid = staffId();
+  const month = monthStart();
+  $('submit').disabled = true;
+  try {
+    const keep = rows.map(r => r.project_id);
+    // remove entries the person has dropped from their list
+    const del = keep.length ? `&project_id=not.in.(${keep.join(',')})` : '';
+    await api(`ts_entries?staff_id=eq.${sid}&month=eq.${month}${del}`, { method: 'DELETE' });
+    if (rows.length) {
+      const now = new Date().toISOString();
+      await api('ts_entries?on_conflict=staff_id,project_id,month', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify(rows.map(r => ({ staff_id: sid, project_id: r.project_id, month, hours: r.hours, updated_at: now })))
+      });
+    }
+    dirty = false;
+    $('info').textContent = 'Last saved ' + new Date().toLocaleString();
+    say('Saved. You can come back and update this any time this month.', true);
+  } catch (e) { say('Save failed: ' + e.message); }
+  $('submit').disabled = false;
+}
+
+$('addProj').onclick = () => {
+  const id = +$('projPick').value;
+  if (!id) return;
+  rows.push({ project_id: id, hours: 0 });
+  sortRows();
+  markDirty();
+  fillProjectPick();
+  render();
+};
+
+$('newStaff').onclick = async () => {
+  if (!confirmDiscard()) return;
+  const name = prompt('Enter your full name:');
+  if (!name || !name.trim()) return;
+  const existing = staff.find(s => s.name.toLowerCase() === name.trim().toLowerCase());
+  if (existing) { fillStaff(existing.id); prevStaff = String(existing.id); loadSheet(); return; }
+  try {
+    const [row] = await api('ts_staff', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ name: name.trim() }) });
+    staff.push(row);
+    staff.sort((a, b) => a.name.localeCompare(b.name));
+    fillStaff(row.id);
+    prevStaff = String(row.id);
+    loadSheet();
+  } catch (e) { say('Could not add name: ' + e.message); }
+};
+
+$('submit').onclick = submit;
+function confirmDiscard() { return !dirty || confirm('You have unsaved changes. Discard them?'); }
+let prevStaff = '', prevMonth = '';
+$('staff').onchange = () => {
+  if (!confirmDiscard()) { $('staff').value = prevStaff; return; }
+  prevStaff = $('staff').value; loadSheet();
+};
+$('month').onchange = () => {
+  if (!confirmDiscard()) { $('month').value = prevMonth; return; }
+  prevMonth = $('month').value; loadSheet();
+};
+window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+
+(async () => {
+  try {
+    [staff, allProjects] = await Promise.all([
+      api('ts_staff?select=id,name&order=name'),
+      api('ts_projects?select=id,name,active')
+    ]);
+    allProjects.sort(byName);
+    $('month').value = prevMonth = currentMonth();
+    const saved = store.get('ts_staff');
+    fillStaff(saved && staff.some(s => s.id === +saved) ? saved : null);
+    prevStaff = $('staff').value;
+    loadSheet();
+  } catch (e) { say('Load failed: ' + e.message); }
+})();
+</script>
+</body>
+</html>

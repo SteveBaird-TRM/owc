@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manage Staff</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 600px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  form { display: flex; gap: .5rem; margin: 1rem 0; }
+  input[type=text] { flex: 1; font-size: 1rem; padding: .4rem; }
+  button { cursor: pointer; border: 1px solid #888; background: #f4f4f4; border-radius: 4px; padding: .3rem .7rem; font-size: 1rem; }
+  button:hover { background: #e6e6e6; }
+  .primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+  .primary:hover { background: #1d4ed8; }
+  .row { display: flex; align-items: center; gap: .75rem; padding: .5rem 0; border-bottom: 1px solid #eee; }
+  .sname { flex: 1; }
+  .note { color: #666; font-size: .9rem; }
+  #status { min-height: 1.2rem; font-size: .9rem; color: #b91c1c; }
+  #status.ok { color: #15803d; }
+</style>
+</head>
+<body>
+<h1>Manage Staff</h1>
+<p class="note">Names added here appear in the timesheet name dropdown. Renaming keeps all recorded hours.</p>
+
+<form id="form">
+  <input type="text" id="name" placeholder="New staff name" maxlength="100" autocomplete="off" required>
+  <button class="primary" type="submit">+ Add staff</button>
+</form>
+<div id="status"></div>
+<div id="list"></div>
+
+<script>
+const BASE = 'https://joneetwkkgrqbxwhunut.supabase.co/rest/v1/ts_staff';
+const KEY = 'sb_publishable_cjj3_AVozweyDGy2qqVP0Q_jMHFmnfk';
+const headers = { apikey: KEY, Authorization: 'Bearer ' + KEY, 'Content-Type': 'application/json' };
+let staff = [];
+
+const $ = id => document.getElementById(id);
+function say(msg, ok) { $('status').textContent = msg; $('status').className = ok ? 'ok' : ''; }
+
+async function api(path, opts = {}) {
+  const res = await fetch(BASE + path, { ...opts, headers: { ...headers, ...(opts.headers || {}) } });
+  if (!res.ok) {
+    if (res.status === 409) throw new Error('A staff member with that name already exists.');
+    throw new Error(await res.text());
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+const exists = (name, exceptId) => staff.some(s => s.id !== exceptId && s.name.toLowerCase() === name.toLowerCase());
+
+function render() {
+  staff.sort((a, b) => a.name.localeCompare(b.name));
+  const list = $('list');
+  list.innerHTML = '';
+  for (const s of staff) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = '<span class="sname"></span><button>Rename</button>';
+    row.querySelector('.sname').textContent = s.name;
+    row.querySelector('button').onclick = async () => {
+      const name = (prompt('Rename "' + s.name + '" to:', s.name) || '').trim();
+      if (!name || name === s.name) return;
+      if (exists(name, s.id)) { say('A staff member with that name already exists.'); return; }
+      try {
+        await api('?id=eq.' + s.id, { method: 'PATCH', body: JSON.stringify({ name }) });
+        s.name = name;
+        say('Renamed.', true);
+        render();
+      } catch (e) { say('Rename failed: ' + e.message); }
+    };
+    list.appendChild(row);
+  }
+  if (!staff.length) list.innerHTML = '<p class="note">No staff yet.</p>';
+}
+
+$('form').onsubmit = async e => {
+  e.preventDefault();
+  const name = $('name').value.trim();
+  if (!name) return;
+  if (exists(name)) { say('A staff member with that name already exists.'); return; }
+  try {
+    const [row] = await api('', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ name }) });
+    staff.push(row);
+    $('name').value = '';
+    say('Added "' + row.name + '".', true);
+    render();
+  } catch (err) { say('Add failed: ' + err.message); }
+};
+
+(async () => {
+  try {
+    staff = await api('?select=id,name&order=name');
+    render();
+  } catch (e) { say('Load failed: ' + e.message); }
+})();
+</script>
+</body>
+</html>

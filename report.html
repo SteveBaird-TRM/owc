@@ -31,9 +31,20 @@
   tfoot td { font-weight: 700; border-top: 2px solid #ccc; }
   td.zero { color: #bbb; }
   td.rt, th.rt { font-weight: 700; background: #f8fafc; }
+  .topnav { display: flex; flex-wrap: wrap; gap: 1.25rem; margin-bottom: 1rem; font-size: .95rem; }
+  .topnav a { color: #2563eb; text-decoration: none; }
+  .topnav a:hover { text-decoration: underline; }
+  .topnav a[aria-current] { color: #222; font-weight: 600; }
 </style>
 </head>
 <body>
+<nav class="topnav">
+  <a href="index.html">Timesheet</a>
+  <a href="staff.html">Staff</a>
+  <a href="projects.html">Projects</a>
+  <a href="report.html" aria-current="page">Report by staff</a>
+  <a href="report_projects.html">Report by project</a>
+</nav>
 <h1>Monthly Hours Report</h1>
 <div class="pick">
   <button id="prev" title="Previous month">◀</button>

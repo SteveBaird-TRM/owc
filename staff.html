@@ -17,9 +17,20 @@
   .note { color: #666; font-size: .9rem; }
   #status { min-height: 1.2rem; font-size: .9rem; color: #b91c1c; }
   #status.ok { color: #15803d; }
+  .topnav { display: flex; flex-wrap: wrap; gap: 1.25rem; margin-bottom: 1rem; font-size: .95rem; }
+  .topnav a { color: #2563eb; text-decoration: none; }
+  .topnav a:hover { text-decoration: underline; }
+  .topnav a[aria-current] { color: #222; font-weight: 600; }
 </style>
 </head>
 <body>
+<nav class="topnav">
+  <a href="index.html">Timesheet</a>
+  <a href="staff.html" aria-current="page">Staff</a>
+  <a href="projects.html">Projects</a>
+  <a href="report.html">Report by staff</a>
+  <a href="report_projects.html">Report by project</a>
+</nav>
 <h1>Manage Staff</h1>
 <p class="note">Names added here appear in the timesheet name dropdown. Renaming keeps all recorded hours.</p>
 

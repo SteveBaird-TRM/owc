@@ -25,7 +25,9 @@
   .fill { height: 100%; width: 0; transition: width .1s; }
   .barwrap { display: flex; align-items: center; gap: .4rem; }
   .barwrap .bar { flex: 1; }
-  .hrs { min-width: 3.5rem; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .hrsbox { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .hrs { width: 4rem; font-size: 1rem; line-height: normal; box-sizing: border-box; padding: .3rem .4rem; text-align: right; border: 1px solid #888; border-radius: 4px; background: #f4f4f4; color: inherit; }
+  .hrs:focus { outline: none; border-color: #2563eb; background: #fff; }
   .remove { color: #b91c1c; }
   .sumrow { display: grid; grid-template-columns: 160px 1fr auto; gap: .75rem; align-items: center; padding: .75rem 0; }
   .sumrow .name { font-weight: 700; }
@@ -153,7 +155,7 @@ function render() {
         <div class="bar" title="Drag to set hours"><div class="fill" style="width:${r.hours / MAX * 100}%;background:${colorOf(r.project_id)}"></div></div>
         <button data-d="1" title="Plus 1 hour">+</button>
       </div>
-      <span class="hrs">${r.hours} h</span>
+      <span class="hrsbox"><input type="number" class="hrs" min="0" max="${MAX}" step="1" value="${r.hours}" aria-label="Hours"> h</span>
       <button class="remove" title="Remove project" aria-label="Remove project"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg></button>`;
     const nm = row.querySelector('.name');
     nm.textContent = projName(r.project_id);
@@ -162,13 +164,17 @@ function render() {
     const bar = row.querySelector('.bar');
     const fill = row.querySelector('.fill');
     const label = row.querySelector('.hrs');
-    const set = h => {
-      r.hours = Math.max(0, Math.min(MAX, h));
+    const set = (h, fromTyping) => {
+      r.hours = Math.max(0, Math.min(MAX, Math.round(h) || 0));
       fill.style.width = (r.hours / MAX * 100) + '%';
-      label.textContent = r.hours + ' h';
+      if (!fromTyping) label.value = r.hours;
       markDirty();
       updateTotal();
     };
+    label.oninput = () => { if (label.value !== '') set(+label.value, true); };
+    label.onchange = () => { set(+label.value); };
+    label.onfocus = () => label.select();
+    label.onkeydown = e => { if (e.key === 'Enter') label.blur(); };
     row.querySelectorAll('.barwrap > button').forEach(b => b.onclick = () => set(r.hours + +b.dataset.d));
     row.querySelector('.remove').onclick = () => {
       rows = rows.filter(x => x !== r);

@@ -59,9 +59,10 @@
   <label>Name
     <select id="staff"></select>
   </label>
-  <label>Month
-    <input type="month" id="month">
-  </label>
+  <label>Month</label>
+  <button id="prev" title="Previous month">◀</button>
+  <input type="month" id="month">
+  <button id="next" title="Next month">▶</button>
   <button class="linkbtn" id="newStaff">+ My name isn't listed</button>
 </div>
 <div id="status"></div>
@@ -296,6 +297,16 @@ $('month').onchange = () => {
   if (!confirmDiscard()) { $('month').value = prevMonth; return; }
   prevMonth = $('month').value; loadSheet();
 };
+function shiftMonth(delta) {
+  const [y, m] = $('month').value.split('-').map(Number);
+  if (!y) return;
+  if (!confirmDiscard()) return;
+  const d = new Date(y, m - 1 + delta, 1);
+  $('month').value = prevMonth = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  loadSheet();
+}
+$('prev').onclick = () => shiftMonth(-1);
+$('next').onclick = () => shiftMonth(1);
 window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
 
 (async () => {

@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reports</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 1000px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  .pick { display: flex; gap: .5rem; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
+  input[type=month] { font-size: 1rem; padding: .3rem; }
+  button { cursor: pointer; border: 1px solid #888; background: #f4f4f4; border-radius: 4px; padding: .3rem .7rem; font-size: 1rem; }
+  button:hover { background: #e6e6e6; }
+  #status { min-height: 1.2rem; font-size: .9rem; color: #b91c1c; }
+  .tabs { display: flex; flex-wrap: wrap; gap: .25rem; border-bottom: 2px solid #ddd; margin-bottom: 1rem; }
+  .tabs button { border: 1px solid transparent; border-bottom: none; background: none; border-radius: 4px 4px 0 0; margin-bottom: -2px; color: #2563eb; }
+  .tabs button:hover { background: #f1f5f9; }
+  .tabs button[aria-selected=true] { border-color: #ddd; border-bottom: 2px solid #fff; background: #fff; color: #222; font-weight: 600; }
+  .legend { display: flex; flex-wrap: wrap; gap: .4rem 1rem; margin: .5rem 0 1rem; font-size: .9rem; }
+  .legend span { display: inline-flex; align-items: center; gap: .35rem; }
+  .sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .row { display: grid; grid-template-columns: 160px 1fr 70px; gap: .75rem; align-items: center; padding: .4rem 0; border-bottom: 1px solid #eee; }
+  .row .name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .none { color: #999; font-style: italic; }
+  .row .tot { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .bar { position: relative; display: flex; height: 22px; background: #e5e7eb; border-radius: 4px; overflow: hidden; }
+  .bar::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+    background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(var(--step, 5%) - 1px), rgba(0,0,0,.15) calc(var(--step, 5%) - 1px), rgba(0,0,0,.15) var(--step, 5%)); }
+  .bar > div { height: 100%; }
+  h2 { margin-top: 2rem; font-size: 1.1rem; }
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { padding: .4rem .6rem; border-bottom: 1px solid #eee; text-align: right; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  thead th { background: #f8fafc; }
+  tfoot td { font-weight: 700; border-top: 2px solid #ccc; }
+  td.zero { color: #bbb; }
+  td.rt, th.rt { font-weight: 700; background: #f8fafc; }
+  .topnav { display: flex; flex-wrap: wrap; gap: 1.25rem; margin-bottom: 1rem; font-size: .95rem; }
+  .topnav a { color: #2563eb; text-decoration: none; }
+  .topnav a:hover { text-decoration: underline; }
+  .topnav a[aria-current] { color: #222; font-weight: 600; }
+</style>
+</head>
+<body>
+<nav class="topnav">
+  <a href="index.html">Timesheet</a>
+  <a href="staff.html">Staff</a>
+  <a href="projects.html">Projects</a>
+  <a href="reports.html" aria-current="page">Reports</a>
+</nav>
+<h1>Reports</h1>
+<div class="tabs" id="tabs" role="tablist"></div>
+<div class="pick">
+  <button id="prev" title="Previous month">◀</button>
+  <input type="month" id="month">
+  <button id="next" title="Next month">▶</button>
+  <button id="refresh">Refresh</button>
+</div>
+<div id="status"></div>
+<div class="legend" id="legend"></div>
+<div id="bars"></div>
+<h2 id="gridtitle"></h2>
+<div class="tablewrap"><table id="grid"></table></div>
+
+<script>
+const BASE = 'https://joneetwkkgrqbxwhunut.supabase.co/rest/v1/';
+const KEY = 'sb_publishable_cjj3_AVozweyDGy2qqVP0Q_jMHFmnfk';
+const MAX = 160;
+const PALETTE = ['#2563eb', '#dc2626', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#db2777', '#65a30d', '#4f46e5', '#ea580c'];
+const UNASSIGNED = '(Unassigned)';
+const headers = { apikey: KEY, Authorization: 'Bearer ' + KEY };
+
+const $ = id => document.getElementById(id);
+const esc = t => { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; };
+const byName = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+const sum = a => a.reduce((x, y) => x + y, 0);
+
+async function api(path) {
+  const res = await fetch(BASE + path, { headers });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+let staff = [], projects = [], entries = [];
+let tab = 'staff';
+
+const TABS = [
+  { id: 'staff',   label: 'By staff',         rowHead: 'Staff',         title: 'Hours by staff and project', none: 'nothing submitted' },
+  { id: 'project', label: 'By project',       rowHead: 'Project',       title: 'Hours by project and staff', none: 'no hours' },
+  { id: 'bu',      label: 'By business unit', rowHead: 'Business Unit', title: 'Hours by business unit and project', none: 'no hours', field: 'business_unit' },
+  { id: 'cap',     label: 'By capability',    rowHead: 'Capability',    title: 'Hours by capability and project', none: 'no hours', field: 'capability' }
+];
+
+// Build the model for a tab: rows (what each bar/line is), cols (the stacked segments), and cell(row, col) => hours
+function model(t) {
+  const h = {}; // staff_id -> project_id -> hours
+  for (const e of entries) (h[e.staff_id] ||= {})[e.project_id] = e.hours;
+  const projHas = p => entries.some(e => e.project_id === p.id);
+
+  if (t.id === 'staff') {
+    return { rows: staff.map(s => ({ id: s.id, name: s.name })), cols: projects,
+             cell: (r, c) => (h[r.id] || {})[c.id] || 0, colsUsed: projects.filter(projHas) };
+  }
+  if (t.id === 'project') {
+    const rows = projects.filter(p => p.active || projHas(p)).map(p => ({ id: p.id, name: p.name, title: p.name + (p.active ? '' : ' (inactive)') }));
+    return { rows, cols: staff, cell: (r, c) => (h[c.id] || {})[r.id] || 0,
+             colsUsed: staff.filter(s => entries.some(e => e.staff_id === s.id)) };
+  }
+  // business unit / capability: group projects by the field
+  const groupOf = p => (p[t.field] || '').trim() || UNASSIGNED;
+  const pmap = Object.fromEntries(projects.map(p => [p.id, p]));
+  const visible = projects.filter(p => p.active || projHas(p));
+  const names = [...new Set(visible.map(groupOf))].sort((a, b) =>
+    a === UNASSIGNED ? 1 : b === UNASSIGNED ? -1 : a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  const hrs = {}; // group -> project_id -> hours
+  for (const e of entries) {
+    const p = pmap[e.project_id];
+    if (!p) continue;
+    const g = groupOf(p);
+    hrs[g] ||= {};
+    hrs[g][p.id] = (hrs[g][p.id] || 0) + e.hours;
+  }
+  return { rows: names.map(n => ({ id: n, name: n })), cols: projects, cell: (r, c) => (hrs[r.id] || {})[c.id] || 0,
+           colsUsed: projects.filter(projHas) };
+}
+
+function render() {
+  const t = TABS.find(x => x.id === tab);
+  const m = model(t);
+  const colorOf = c => PALETTE[m.cols.indexOf(c) % PALETTE.length];
+  const rowTotal = r => sum(m.cols.map(c => m.cell(r, c)));
+  const grand = sum(m.rows.map(rowTotal));
+
+  $('legend').innerHTML = m.colsUsed.map(c =>
+    `<span><i class="sw" style="background:${colorOf(c)}"></i>${esc(c.name)}</span>`).join('');
+
+  const scale = Math.max(MAX, ...m.rows.map(rowTotal));
+  const bars = $('bars');
+  bars.innerHTML = '';
+  for (const r of m.rows) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = '<div class="name"></div><div class="bar"></div><div class="tot"></div>';
+    const nm = row.querySelector('.name');
+    nm.textContent = r.name;
+    nm.title = r.title || r.name;
+    const total = rowTotal(r);
+    row.querySelector('.tot').textContent = total + ' h';
+    const bar = row.querySelector('.bar');
+    bar.style.setProperty('--step', (8 / scale * 100) + '%');
+    if (!total) {
+      bar.style.background = 'transparent';
+      bar.style.overflow = 'visible';
+      bar.innerHTML = `<span class="none">${t.none}</span>`;
+    } else {
+      for (const c of m.cols) {
+        const hh = m.cell(r, c);
+        if (!hh) continue;
+        const seg = document.createElement('div');
+        seg.style.width = (hh / scale * 100) + '%';
+        seg.style.background = colorOf(c);
+        seg.title = c.name + ': ' + hh + ' h';
+        bar.appendChild(seg);
+      }
+    }
+    bars.appendChild(row);
+  }
+  if (!m.rows.length) bars.innerHTML = '<p>Nothing to show yet.</p>';
+
+  $('gridtitle').textContent = t.title;
+  const grid = $('grid');
+  if (!m.colsUsed.length) {
+    grid.innerHTML = '<tbody><tr><td>No hours recorded for this month.</td></tr></tbody>';
+    return;
+  }
+  let html = `<thead><tr><th>${t.rowHead}</th>` +
+    m.colsUsed.map(c => `<th>${esc(c.name)}</th>`).join('') + '<th class="rt">Total</th></tr></thead><tbody>';
+  for (const r of m.rows) {
+    html += `<tr><td>${esc(r.name)}</td>` + m.colsUsed.map(c => {
+      const hh = m.cell(r, c);
+      return `<td class="${hh ? '' : 'zero'}">${hh || '–'}</td>`;
+    }).join('') + `<td class="rt">${rowTotal(r)}</td></tr>`;
+  }
+  html += '</tbody><tfoot><tr><td>Total</td>' +
+    m.colsUsed.map(c => `<td>${sum(m.rows.map(r => m.cell(r, c)))}</td>`).join('') + `<td>${grand}</td></tr></tfoot>`;
+  grid.innerHTML = html;
+}
+
+function drawTabs() {
+  $('tabs').innerHTML = '';
+  for (const t of TABS) {
+    const b = document.createElement('button');
+    b.textContent = t.label;
+    b.setAttribute('role', 'tab');
+    b.setAttribute('aria-selected', t.id === tab);
+    b.onclick = () => { tab = t.id; history.replaceState(null, '', '#' + tab); drawTabs(); render(); };
+    $('tabs').appendChild(b);
+  }
+}
+
+function shiftMonth(delta) {
+  const [y, m] = $('month').value.split('-').map(Number);
+  if (!y) return;
+  const d = new Date(y, m - 1 + delta, 1);
+  $('month').value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  load();
+}
+
+async function load() {
+  const month = $('month').value;
+  if (!month) return;
+  try {
+    entries = await api(`ts_entries?select=staff_id,project_id,hours&month=eq.${month}-01`);
+    $('status').textContent = '';
+    render();
+  } catch (e) { $('status').textContent = 'Load failed: ' + e.message; }
+}
+
+$('prev').onclick = () => shiftMonth(-1);
+$('next').onclick = () => shiftMonth(1);
+$('refresh').onclick = load;
+$('month').onchange = load;
+
+(async () => {
+  const h = location.hash.slice(1);
+  if (TABS.some(t => t.id === h)) tab = h;
+  drawTabs();
+  const d = new Date();
+  $('month').value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  try {
+    [staff, projects] = await Promise.all([
+      api('ts_staff?select=id,name'),
+      api('ts_projects?select=id,name,active,business_unit,capability')
+    ]);
+    staff.sort(byName);
+    projects.sort(byName);
+    load();
+  } catch (e) { $('status').textContent = 'Load failed: ' + e.message; }
+})();
+</script>
+</body>
+</html>

@@ -5,9 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Manage Projects</title>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 600px; margin: 2rem auto; padding: 0 1rem; color: #222; }
-  form { display: flex; gap: .5rem; margin: 1rem 0; }
-  input[type=text] { flex: 1; font-size: 1rem; padding: .4rem; }
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  form { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; }
+  input[type=text] { flex: 1 1 150px; min-width: 0; font-size: 1rem; padding: .4rem; }
+  .row input[type=text] { flex: 0 1 150px; font-size: .9rem; padding: .25rem; }
   button { cursor: pointer; border: 1px solid #888; background: #f4f4f4; border-radius: 4px; padding: .3rem .7rem; font-size: 1rem; }
   button:hover { background: #e6e6e6; }
   .primary { background: #2563eb; color: #fff; border-color: #2563eb; }
@@ -30,14 +31,15 @@
   <a href="index.html">Timesheet</a>
   <a href="staff.html">Staff</a>
   <a href="projects.html" aria-current="page">Projects</a>
-  <a href="report.html">Report by staff</a>
-  <a href="report_projects.html">Report by project</a>
+  <a href="reports.html">Reports</a>
 </nav>
 <h1>Manage Projects</h1>
 <p class="note">Projects added here appear in the timesheet dropdown. Deactivating a project hides it from the dropdown but keeps existing hours.</p>
 
 <form id="form">
   <input type="text" id="name" placeholder="New project name" maxlength="100" autocomplete="off" required>
+  <input type="text" id="bu" placeholder="Business Unit" maxlength="100" autocomplete="off">
+  <input type="text" id="cap" placeholder="Capability" maxlength="100" autocomplete="off">
   <button class="primary" type="submit">+ Add project</button>
 </form>
 <div id="status"></div>
@@ -71,9 +73,22 @@ function render() {
   projects.forEach((p, i) => {
     const row = document.createElement('div');
     row.className = 'row' + (p.active ? '' : ' inactive');
-    row.innerHTML = '<span class="swatch"></span><span class="pname"></span><button></button>';
+    row.innerHTML = '<span class="swatch"></span><span class="pname"></span>' +
+      '<input type="text" class="bu" placeholder="Business Unit" maxlength="100">' +
+      '<input type="text" class="cap" placeholder="Capability" maxlength="100"><button></button>';
     row.querySelector('.swatch').style.background = PALETTE[i % PALETTE.length];
     row.querySelector('.pname').textContent = p.name;
+    [['bu', 'business_unit'], ['cap', 'capability']].forEach(([cls, field]) => {
+      const inp = row.querySelector('.' + cls);
+      inp.value = p[field] || '';
+      inp.onchange = async () => {
+        const v = inp.value.trim() || null;
+        try {
+          await api('?id=eq.' + p.id, { method: 'PATCH', body: JSON.stringify({ [field]: v }) });
+          p[field] = v; inp.value = v || ''; say('Saved.', true);
+        } catch (e) { inp.value = p[field] || ''; say('Update failed: ' + e.message); }
+      };
+    });
     const btn = row.querySelector('button');
     btn.textContent = p.active ? 'Deactivate' : 'Reactivate';
     btn.onclick = async () => {
@@ -94,10 +109,10 @@ $('form').onsubmit = async e => {
   if (!name) return;
   if (projects.some(p => p.name.toLowerCase() === name.toLowerCase())) { say('A project with that name already exists.'); return; }
   try {
-    const [row] = await api('', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ name }) });
+    const [row] = await api('', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ name, business_unit: $('bu').value.trim() || null, capability: $('cap').value.trim() || null }) });
     projects.push(row);
     sortProjects();
-    $('name').value = '';
+    $('name').value = $('bu').value = $('cap').value = '';
     say('Added "' + row.name + '".', true);
     render();
   } catch (err) { say('Add failed: ' + err.message); }
@@ -105,7 +120,7 @@ $('form').onsubmit = async e => {
 
 (async () => {
   try {
-    projects = await api('?select=id,name,active');
+    projects = await api('?select=id,name,active,business_unit,capability');
     sortProjects();
     render();
   } catch (e) { say('Load failed: ' + e.message); }

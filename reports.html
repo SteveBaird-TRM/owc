@@ -285,6 +285,8 @@ $('month').onchange = load;
   if (TABS.some(t => t.id === h)) tab = h;
   drawTabs();
   const d = new Date();
+  d.setDate(1); // avoid day-overflow (e.g. 31 Mar - 1 month)
+  d.setMonth(d.getMonth() - 1); // default to the previous month
   $('month').value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
   try {
     [staff, projects] = await Promise.all([

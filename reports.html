@@ -55,6 +55,7 @@
   <input type="month" id="month">
   <button id="next" title="Next month">▶</button>
   <button id="refresh">Refresh</button>
+  <button id="export" title="Download the graph as a standalone HTML file (no staff names, no table)" hidden>Export HTML</button>
 </div>
 <div id="status"></div>
 <div class="legend" id="legend"></div>
@@ -187,6 +188,7 @@ function render() {
 }
 
 function drawTabs() {
+  $('export').hidden = tab !== 'project';
   $('tabs').innerHTML = '';
   for (const t of TABS) {
     const b = document.createElement('button');
@@ -196,6 +198,62 @@ function drawTabs() {
     b.onclick = () => { tab = t.id; history.replaceState(null, '', '#' + tab); drawTabs(); render(); };
     $('tabs').appendChild(b);
   }
+}
+
+// Standalone HTML of the By project graph: project bars only, no staff names (legend/tooltips) and no table.
+function exportProjectHtml() {
+  const t = TABS.find(x => x.id === 'project');
+  const m = model(t);
+  const colorOf = c => PALETTE[m.cols.indexOf(c) % PALETTE.length];
+  const rowTotal = r => sum(m.cols.map(c => m.cell(r, c)));
+  const scale = Math.max(MAX, ...m.rows.map(rowTotal));
+  const month = $('month').value;
+  const label = new Date(month + '-01T00:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+
+  const rows = m.rows.map(r => {
+    const total = rowTotal(r);
+    const segs = total
+      ? m.cols.map(c => {
+          const hh = m.cell(r, c);
+          return hh ? `<div style="width:${hh / scale * 100}%;background:${colorOf(c)}" title="${hh} h"></div>` : '';
+        }).join('')
+      : '<span class="none">no hours</span>';
+    return `<div class="row"><div class="name" title="${esc(r.title || r.name)}">${esc(r.name)}</div>` +
+      `<div class="bar${total ? '' : ' empty'}" style="--step:${8 / scale * 100}%">${segs}</div>` +
+      `<div class="tot">${total} h</div></div>`;
+  }).join('');
+
+  const doc = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hours by project - ${esc(label)}</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 1000px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  h1 { font-size: 1.4rem; }
+  .row { display: grid; grid-template-columns: 220px 1fr 70px; gap: .75rem; align-items: center; padding: .4rem 0; border-bottom: 1px solid #eee; }
+  .name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .none { color: #999; font-style: italic; }
+  .tot { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .bar { position: relative; display: flex; height: 22px; background: #e5e7eb; border-radius: 4px; overflow: hidden; }
+  .bar.empty { background: transparent; overflow: visible; }
+  .bar:not(.empty)::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+    background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(var(--step) - 1px), rgba(0,0,0,.15) calc(var(--step) - 1px), rgba(0,0,0,.15) var(--step)); }
+  .bar > div { height: 100%; }
+</style>
+</head>
+<body>
+<h1>Hours by project - ${esc(label)}</h1>
+${rows || '<p>Nothing to show.</p>'}
+</body>
+</html>
+`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([doc], { type: 'text/html' }));
+  a.download = `hours-by-project-${month}.html`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 function shiftMonth(delta) {
@@ -219,6 +277,7 @@ async function load() {
 $('prev').onclick = () => shiftMonth(-1);
 $('next').onclick = () => shiftMonth(1);
 $('refresh').onclick = load;
+$('export').onclick = exportProjectHtml;
 $('month').onchange = load;
 
 (async () => {

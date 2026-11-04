@@ -55,6 +55,9 @@
 <h1>Monthly Timesheet</h1>
 
 <div class="pick">
+  <label>Team
+    <select id="team"></select>
+  </label>
   <label>Name
     <select id="staff"></select>
   </label>
@@ -70,6 +73,7 @@
   <div class="addrow">
     <select id="projPick"></select>
     <button id="addProj">+ Add project</button>
+    <button id="copyPrev" title="Add the projects this person had on last month's timesheet (hours start at 0)">Copy last months projects</button>
   </div>
   <div id="list"></div>
   <div class="sumrow">
@@ -124,10 +128,22 @@ function currentMonth() {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
 }
 
+const NO_TEAM = '__none__';
+const teamOf = s => (s.team || '').trim();
+const inTeam = s => { const f = $('team').value; return !f || (f === NO_TEAM ? !teamOf(s) : teamOf(s) === f); };
+
+function fillTeams(selected) {
+  const teams = [...new Set(staff.map(teamOf).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  $('team').innerHTML = '<option value="">All teams</option>' +
+    teams.map(t => `<option value="${esc(t).replace(/"/g, '&quot;')}">${esc(t)}</option>`).join('') +
+    (staff.some(s => !teamOf(s)) ? `<option value="${NO_TEAM}">(No team)</option>` : '');
+  $('team').value = [...$('team').options].some(o => o.value === selected) ? selected : '';
+}
+
 function fillStaff(selectId) {
   const sel = $('staff');
   sel.innerHTML = '<option value="">— pick your name —</option>' +
-    staff.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+    staff.filter(inTeam).map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
   if (selectId) sel.value = selectId;
 }
 
@@ -269,16 +285,51 @@ $('addProj').onclick = () => {
   render();
 };
 
+$('copyPrev').onclick = async () => {
+  const sid = staffId();
+  const [y, m] = $('month').value.split('-').map(Number);
+  if (!sid || !y) return;
+  const pd = new Date(y, m - 2, 1);
+  const prev = pd.getFullYear() + '-' + String(pd.getMonth() + 1).padStart(2, '0') + '-01';
+  const label = pd.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  $('copyPrev').disabled = true;
+  try {
+    const data = await api(`ts_entries?select=project_id&staff_id=eq.${sid}&month=eq.${prev}`);
+    const have = new Set(rows.map(r => r.project_id));
+    const add = data.map(d => d.project_id).filter(id => !have.has(id));
+    if (!data.length) { say('No projects found for ' + label + '.'); }
+    else if (!add.length) { say('All of ' + label + "'s projects are already on this timesheet.", true); }
+    else {
+      for (const id of add) rows.push({ project_id: id, hours: 0 });
+      sortRows();
+      markDirty();
+      fillProjectPick();
+      render();
+      say('Added ' + add.length + ' project' + (add.length === 1 ? '' : 's') + ' from ' + label + ' at 0 hours. Set the hours and press Save.', true);
+    }
+  } catch (e) { say('Copy failed: ' + e.message); }
+  $('copyPrev').disabled = false;
+};
+
 $('newStaff').onclick = async () => {
   if (!confirmDiscard()) return;
   const name = prompt('Enter your full name:');
   if (!name || !name.trim()) return;
   const existing = staff.find(s => s.name.toLowerCase() === name.trim().toLowerCase());
-  if (existing) { fillStaff(existing.id); prevStaff = String(existing.id); loadSheet(); return; }
+  if (existing) {
+    if (!inTeam(existing)) { fillTeams(''); store.set('ts_team', ''); }
+    fillStaff(existing.id); prevStaff = String(existing.id); loadSheet(); return;
+  }
+  const id = parseInt((prompt('Enter your staff number:') || '').trim(), 10);
+  if (!id || id < 1) { say('A valid staff number is required to add a name.'); return; }
+  if (staff.some(s => s.id === id)) { say('Staff number ' + id + ' is already in use.'); return; }
   try {
-    const [row] = await api('ts_staff', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ name: name.trim() }) });
+    const f = $('team').value;
+    const team = f && f !== NO_TEAM ? f : null; // new names join the team currently being filtered
+    const [row] = await api('ts_staff', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ id, name: name.trim(), team }) });
     staff.push(row);
     staff.sort((a, b) => a.name.localeCompare(b.name));
+    if (!inTeam(row)) { fillTeams(''); store.set('ts_team', ''); }
     fillStaff(row.id);
     prevStaff = String(row.id);
     loadSheet();
@@ -287,10 +338,20 @@ $('newStaff').onclick = async () => {
 
 $('submit').onclick = submit;
 function confirmDiscard() { return !dirty || confirm('You have unsaved changes. Discard them?'); }
-let prevStaff = '', prevMonth = '';
+let prevStaff = '', prevMonth = '', prevTeam = '';
 $('staff').onchange = () => {
   if (!confirmDiscard()) { $('staff').value = prevStaff; return; }
   prevStaff = $('staff').value; loadSheet();
+};
+$('team').onchange = () => {
+  const cur = staffId();
+  const stays = !cur || inTeam(staff.find(s => s.id === cur) || {});
+  // switching to a team that doesn't include the selected person clears the selection
+  if (!stays && !confirmDiscard()) { $('team').value = prevTeam; return; }
+  prevTeam = $('team').value;
+  store.set('ts_team', prevTeam);
+  fillStaff(stays ? cur : null);
+  if (!stays) { prevStaff = ''; loadSheet(); }
 };
 $('month').onchange = () => {
   if (!confirmDiscard()) { $('month').value = prevMonth; return; }
@@ -311,13 +372,17 @@ window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); 
 (async () => {
   try {
     [staff, allProjects] = await Promise.all([
-      api('ts_staff?select=id,name&order=name'),
+      api('ts_staff?select=id,name,team&order=name'),
       api('ts_projects?select=id,name,active')
     ]);
     allProjects.sort(byName);
     $('month').value = prevMonth = currentMonth();
     const saved = store.get('ts_staff');
-    fillStaff(saved && staff.some(s => s.id === +saved) ? saved : null);
+    const me = saved && staff.find(s => s.id === +saved);
+    fillTeams(store.get('ts_team') || '');
+    if (me && !inTeam(me)) fillTeams(''); // make sure the remembered person is still listed
+    prevTeam = $('team').value;
+    fillStaff(me ? me.id : null);
     prevStaff = $('staff').value;
     loadSheet();
   } catch (e) { say('Load failed: ' + e.message); }

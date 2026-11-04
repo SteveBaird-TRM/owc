@@ -7,7 +7,12 @@
 <style>
   body { font-family: system-ui, sans-serif; max-width: 600px; margin: 2rem auto; padding: 0 1rem; color: #222; }
   form { display: flex; gap: .5rem; margin: 1rem 0; }
-  input[type=text] { flex: 1; font-size: 1rem; padding: .4rem; }
+  form { flex-wrap: wrap; }
+  input[type=text], input[type=number] { font-size: 1rem; padding: .4rem; }
+  input[type=text] { flex: 1; min-width: 10rem; }
+  input[type=number] { width: 7rem; }
+  .steam { width: 9rem; color: #444; }
+  .snum { width: 4.5rem; color: #666; font-variant-numeric: tabular-nums; }
   button { cursor: pointer; border: 1px solid #888; background: #f4f4f4; border-radius: 4px; padding: .3rem .7rem; font-size: 1rem; }
   button:hover { background: #e6e6e6; }
   .primary { background: #2563eb; color: #fff; border-color: #2563eb; }
@@ -34,7 +39,9 @@
 <p class="note">Names added here appear in the timesheet name dropdown. Renaming keeps all recorded hours.</p>
 
 <form id="form">
+  <input type="number" id="num" placeholder="Staff no." min="1" step="1" required>
   <input type="text" id="name" placeholder="New staff name" maxlength="100" autocomplete="off" required>
+  <input type="text" id="team" placeholder="Team" maxlength="100" autocomplete="off">
   <button class="primary" type="submit">+ Add staff</button>
 </form>
 <div id="status"></div>
@@ -68,9 +75,23 @@ function render() {
   for (const s of staff) {
     const row = document.createElement('div');
     row.className = 'row';
-    row.innerHTML = '<span class="sname"></span><button>Rename</button>';
+    row.innerHTML = '<span class="snum"></span><span class="sname"></span><span class="steam"></span><button class="ren">Rename</button><button class="tm">Team</button>';
+    row.querySelector('.snum').textContent = s.id;
     row.querySelector('.sname').textContent = s.name;
-    row.querySelector('button').onclick = async () => {
+    row.querySelector('.steam').textContent = s.team || '';
+    row.querySelector('.tm').onclick = async () => {
+      const v = prompt('Team for "' + s.name + '" (blank to clear):', s.team || '');
+      if (v === null) return;
+      const team = v.trim() || null;
+      if (team === (s.team || null)) return;
+      try {
+        await api('?id=eq.' + s.id, { method: 'PATCH', body: JSON.stringify({ team }) });
+        s.team = team;
+        say('Team updated.', true);
+        render();
+      } catch (e) { say('Team update failed: ' + e.message); }
+    };
+    row.querySelector('.ren').onclick = async () => {
       const name = (prompt('Rename "' + s.name + '" to:', s.name) || '').trim();
       if (!name || name === s.name) return;
       if (exists(name, s.id)) { say('A staff member with that name already exists.'); return; }
@@ -89,12 +110,17 @@ function render() {
 $('form').onsubmit = async e => {
   e.preventDefault();
   const name = $('name').value.trim();
-  if (!name) return;
+  const id = parseInt($('num').value, 10);
+  const team = $('team').value.trim() || null;
+  if (!name || !id) return;
   if (exists(name)) { say('A staff member with that name already exists.'); return; }
+  if (staff.some(s => s.id === id)) { say('Staff number ' + id + ' is already in use.'); return; }
   try {
-    const [row] = await api('', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ name }) });
+    const [row] = await api('', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ id, name, team }) });
     staff.push(row);
     $('name').value = '';
+    $('num').value = '';
+    $('team').value = '';
     say('Added "' + row.name + '".', true);
     render();
   } catch (err) { say('Add failed: ' + err.message); }
@@ -102,7 +128,7 @@ $('form').onsubmit = async e => {
 
 (async () => {
   try {
-    staff = await api('?select=id,name&order=name');
+    staff = await api('?select=id,name,team&order=name');
     render();
   } catch (e) { say('Load failed: ' + e.message); }
 })();

@@ -7,7 +7,7 @@
 <style>
   body { font-family: system-ui, sans-serif; max-width: 1000px; margin: 2rem auto; padding: 0 1rem; color: #222; }
   .pick { display: flex; gap: .5rem; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
-  input[type=month] { font-size: 1rem; padding: .3rem; }
+  input[type=month], select { font-size: 1rem; padding: .3rem; }
   button { cursor: pointer; border: 1px solid #888; background: #f4f4f4; border-radius: 4px; padding: .3rem .7rem; font-size: 1rem; }
   button:hover { background: #e6e6e6; }
   #status { min-height: 1.2rem; font-size: .9rem; color: #b91c1c; }
@@ -54,6 +54,8 @@
   <button id="prev" title="Previous month">◀</button>
   <input type="month" id="month">
   <button id="next" title="Next month">▶</button>
+  <select id="team" title="Filter by team"></select>
+  <label><input type="checkbox" id="hidezero"> Hide zero hours</label>
   <button id="refresh">Refresh</button>
   <button id="export" title="Download the graph as a standalone HTML file (no staff names, no table)" hidden>Export HTML</button>
 </div>
@@ -93,19 +95,26 @@ const TABS = [
 ];
 
 // Build the model for a tab: rows (what each bar/line is), cols (the stacked segments), and cell(row, col) => hours
+const NO_TEAM = '__none__';
+const inTeam = s => { const f = $('team').value; return !f || (f === NO_TEAM ? !(s.team || '').trim() : (s.team || '').trim() === f); };
+
 function model(t) {
+  // Team filter: only staff in the chosen team (and their entries) count
+  const staff_ = staff.filter(inTeam);
+  const ids = new Set(staff_.map(s => s.id));
+  const entries_ = entries.filter(e => ids.has(e.staff_id));
   const h = {}; // staff_id -> project_id -> hours
-  for (const e of entries) (h[e.staff_id] ||= {})[e.project_id] = e.hours;
-  const projHas = p => entries.some(e => e.project_id === p.id);
+  for (const e of entries_) (h[e.staff_id] ||= {})[e.project_id] = e.hours;
+  const projHas = p => entries_.some(e => e.project_id === p.id);
 
   if (t.id === 'staff') {
-    return { rows: staff.map(s => ({ id: s.id, name: s.name })), cols: projects,
+    return { rows: staff_.map(s => ({ id: s.id, name: s.name })), cols: projects,
              cell: (r, c) => (h[r.id] || {})[c.id] || 0, colsUsed: projects.filter(projHas) };
   }
   if (t.id === 'project') {
     const rows = projects.filter(p => p.active || projHas(p)).map(p => ({ id: p.id, name: p.name, title: p.name + (p.active ? '' : ' (inactive)') }));
     return { rows, cols: staff, cell: (r, c) => (h[c.id] || {})[r.id] || 0,
-             colsUsed: staff.filter(s => entries.some(e => e.staff_id === s.id)) };
+             colsUsed: staff_.filter(s => entries_.some(e => e.staff_id === s.id)) };
   }
   // business unit / capability: group projects by the field
   const groupOf = p => (p[t.field] || '').trim() || UNASSIGNED;
@@ -114,7 +123,7 @@ function model(t) {
   const names = [...new Set(visible.map(groupOf))].sort((a, b) =>
     a === UNASSIGNED ? 1 : b === UNASSIGNED ? -1 : a.localeCompare(b, undefined, { sensitivity: 'base' }));
   const hrs = {}; // group -> project_id -> hours
-  for (const e of entries) {
+  for (const e of entries_) {
     const p = pmap[e.project_id];
     if (!p) continue;
     const g = groupOf(p);
@@ -138,7 +147,11 @@ function render() {
   const scale = Math.max(MAX, ...m.rows.map(rowTotal));
   const bars = $('bars');
   bars.innerHTML = '';
+  const hideZero = $('hidezero').checked;
+  let shown = 0;
   for (const r of m.rows) {
+    if (hideZero && !rowTotal(r)) continue;
+    shown++;
     const row = document.createElement('div');
     row.className = 'row';
     row.innerHTML = '<div class="name"></div><div class="bar"></div><div class="tot"></div>';
@@ -166,7 +179,7 @@ function render() {
     }
     bars.appendChild(row);
   }
-  if (!m.rows.length) bars.innerHTML = '<p>Nothing to show yet.</p>';
+  if (!shown) bars.innerHTML = '<p>Nothing to show yet.</p>';
 
   $('gridtitle').textContent = t.title;
   const grid = $('grid');
@@ -210,7 +223,7 @@ function exportProjectHtml() {
   const month = $('month').value;
   const label = new Date(month + '-01T00:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 
-  const rows = m.rows.map(r => {
+  const rows = m.rows.filter(r => !$('hidezero').checked || rowTotal(r)).map(r => {
     const total = rowTotal(r);
     const segs = total
       ? m.cols.map(c => {
@@ -277,6 +290,17 @@ async function load() {
 $('prev').onclick = () => shiftMonth(-1);
 $('next').onclick = () => shiftMonth(1);
 $('refresh').onclick = load;
+$('team').onchange = render;
+$('hidezero').onchange = render;
+
+function fillTeams() {
+  const cur = $('team').value;
+  const teams = [...new Set(staff.map(s => (s.team || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  $('team').innerHTML = '<option value="">All teams</option>' +
+    teams.map(x => `<option value="${esc(x).replace(/"/g, '&quot;')}">${esc(x)}</option>`).join('') +
+    (staff.some(s => !(s.team || '').trim()) ? `<option value="${NO_TEAM}">(No team)</option>` : '');
+  $('team').value = [...$('team').options].some(o => o.value === cur) ? cur : '';
+}
 $('export').onclick = exportProjectHtml;
 $('month').onchange = load;
 
@@ -290,11 +314,12 @@ $('month').onchange = load;
   $('month').value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
   try {
     [staff, projects] = await Promise.all([
-      api('ts_staff?select=id,name'),
+      api('ts_staff?select=id,name,team'),
       api('ts_projects?select=id,name,active,business_unit,capability')
     ]);
     staff.sort(byName);
     projects.sort(byName);
+    fillTeams();
     load();
   } catch (e) { $('status').textContent = 'Load failed: ' + e.message; }
 })();

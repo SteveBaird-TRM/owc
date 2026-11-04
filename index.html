@@ -29,6 +29,15 @@
   .hrs { width: 4rem; font-size: 1rem; line-height: normal; box-sizing: border-box; padding: .3rem .4rem; text-align: right; border: 1px solid #888; border-radius: 4px; background: #f4f4f4; color: inherit; }
   .hrs:focus { outline: none; border-color: #2563eb; background: #fff; }
   .remove { color: #b91c1c; }
+  .danger { background: #dc2626; color: #fff; border-color: #dc2626; }
+  .danger:hover:not(:disabled) { background: #b91c1c; }
+  dialog { border: 1px solid #888; border-radius: 8px; padding: 1.25rem; width: min(420px, 92vw); }
+  dialog::backdrop { background: rgba(0,0,0,.4); }
+  dialog h2 { margin: 0 0 .75rem; font-size: 1.1rem; }
+  dialog label { display: flex; flex-direction: column; gap: .2rem; font-size: .85rem; color: #555; margin-bottom: .75rem; }
+  dialog input { font-size: 1rem; padding: .4rem; }
+  dialog .btns { display: flex; justify-content: flex-end; gap: .5rem; margin-top: 1rem; }
+  #npStatus { min-height: 1.1rem; font-size: .9rem; color: #b91c1c; }
   .sumrow { display: grid; grid-template-columns: 160px 1fr auto; gap: .75rem; align-items: center; padding: .75rem 0; }
   .sumrow .name { font-weight: 700; }
   .sumbar { position: relative; display: flex; height: 22px; background: #e5e7eb; border-radius: 4px; overflow: hidden; }
@@ -65,8 +74,30 @@
   <button id="prev" title="Previous month">◀</button>
   <input type="month" id="month">
   <button id="next" title="Next month">▶</button>
-  <button class="linkbtn" id="newStaff">My name isn't listed</button>
+  <button class="linkbtn" id="newStaff" hidden>My name isn't listed</button>
 </div>
+
+<dialog id="npDialog">
+  <form id="npForm">
+    <h2>New project</h2>
+    <label>Project name (required)
+      <input type="text" id="npName" maxlength="100" autocomplete="off" required>
+    </label>
+    <label>Business unit
+      <input type="text" id="npBu" maxlength="100" autocomplete="off" list="buList">
+      <datalist id="buList"></datalist>
+    </label>
+    <label>Capability
+      <input type="text" id="npCap" maxlength="100" autocomplete="off" list="capList">
+      <datalist id="capList"></datalist>
+    </label>
+    <div id="npStatus"></div>
+    <div class="btns">
+      <button type="button" id="npCancel">Cancel</button>
+      <button type="submit" class="danger" id="npSave">Save project</button>
+    </div>
+  </form>
+</dialog>
 <div id="status"></div>
 
 <div id="sheet" hidden>
@@ -74,6 +105,7 @@
     <select id="projPick"></select>
     <button id="addProj">Add project to list</button>
     <button id="copyPrev" title="Add the projects this person had on last month's timesheet (hours start at 0)">Copy last months projects</button>
+    <button class="danger" id="newProject">New project</button>
   </div>
   <div id="list"></div>
   <div class="sumrow">
@@ -285,6 +317,47 @@ $('addProj').onclick = () => {
   render();
 };
 
+$('newProject').onclick = () => {
+  const uniq = f => [...new Set(allProjects.map(p => (p[f] || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  $('buList').innerHTML = uniq('business_unit').map(v => `<option value="${esc(v).replace(/"/g, '&quot;')}">`).join('');
+  $('capList').innerHTML = uniq('capability').map(v => `<option value="${esc(v).replace(/"/g, '&quot;')}">`).join('');
+  $('npForm').reset();
+  $('npStatus').textContent = '';
+  $('npDialog').showModal();
+  $('npName').focus();
+};
+$('npCancel').onclick = () => $('npDialog').close();
+$('npForm').onsubmit = async e => {
+  e.preventDefault();
+  const name = $('npName').value.trim();
+  if (!name) { $('npStatus').textContent = 'Project name is required.'; return; }
+  if (allProjects.some(p => p.name.toLowerCase() === name.toLowerCase())) { $('npStatus').textContent = 'A project with that name already exists.'; return; }
+  $('npSave').disabled = true;
+  try {
+    const [row] = await api('ts_projects', {
+      method: 'POST', headers: { Prefer: 'return=representation' },
+      body: JSON.stringify({ name, business_unit: $('npBu').value.trim() || null, capability: $('npCap').value.trim() || null })
+    });
+    allProjects.push(row);
+    allProjects.sort(byName);
+    $('npDialog').close();
+    if (staffId() && !$('sheet').hidden) {
+      rows.push({ project_id: row.id, hours: 0 });
+      sortRows();
+      markDirty();
+      fillProjectPick();
+      render();
+      say('Added "' + row.name + '" and put it on your list at 0 hours.', true);
+    } else {
+      fillProjectPick();
+      say('Added "' + row.name + '". Pick your name to put it on your timesheet.', true);
+    }
+  } catch (err) {
+    $('npStatus').textContent = 'Could not save: ' + (/duplicate|409/i.test(err.message) ? 'a project with that name already exists.' : err.message);
+  }
+  $('npSave').disabled = false;
+};
+
 $('copyPrev').onclick = async () => {
   const sid = staffId();
   const [y, m] = $('month').value.split('-').map(Number);
@@ -373,7 +446,7 @@ window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); 
   try {
     [staff, allProjects] = await Promise.all([
       api('ts_staff?select=id,name,team&order=name'),
-      api('ts_projects?select=id,name,active')
+      api('ts_projects?select=id,name,active,business_unit,capability')
     ]);
     allProjects.sort(byName);
     $('month').value = prevMonth = currentMonth();

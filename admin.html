@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monthly Timesheet</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 1000px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  h1 { margin-bottom: .5rem; }
+  .pick { display: flex; flex-wrap: wrap; gap: 1rem; align-items: end; margin-bottom: 1rem; }
+  .pick label { display: flex; flex-direction: column; font-size: .85rem; color: #555; gap: .2rem; }
+  select, input[type=month] { font-size: 1rem; padding: .3rem; }
+  button { cursor: pointer; border: 1px solid #888; background: #f4f4f4; border-radius: 4px; padding: .3rem .7rem; font-size: 1rem; }
+  button:hover:not(:disabled) { background: #e6e6e6; }
+  button:disabled { opacity: .5; cursor: default; }
+  .primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+  .primary:hover:not(:disabled) { background: #1d4ed8; }
+  .linkbtn { border: none; background: none; color: #2563eb; padding: 0; font-size: .9rem; text-decoration: underline; }
+  .addrow { display: flex; gap: .5rem; margin: 1rem 0; }
+  .row { display: grid; grid-template-columns: 160px 1fr auto auto; gap: .75rem; align-items: center; padding: .5rem 0; border-bottom: 1px solid #eee; }
+  .name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar { position: relative; height: 22px; background: #e5e7eb; border-radius: 4px; overflow: hidden; cursor: pointer; touch-action: none; }
+  .bar::after, .sumbar::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+    background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(var(--step, 5%) - 1px), rgba(0,0,0,.15) calc(var(--step, 5%) - 1px), rgba(0,0,0,.15) var(--step, 5%)); }
+  .fill { height: 100%; width: 0; transition: width .1s; }
+  .barwrap { display: flex; align-items: center; gap: .4rem; }
+  .barwrap .bar { flex: 1; }
+  .hrsbox { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .hrs { width: 4rem; font-size: 1rem; line-height: normal; box-sizing: border-box; padding: .3rem .4rem; text-align: right; border: 1px solid #888; border-radius: 4px; background: #f4f4f4; color: inherit; }
+  .hrs:focus { outline: none; border-color: #2563eb; background: #fff; }
+  .combo { position: relative; }
+  #projPick { font-size: 1rem; padding: .3rem; min-width: 18rem; }
+  #projMenu { position: absolute; z-index: 10; top: 100%; left: 0; min-width: 100%; max-height: 16rem; overflow-y: auto; margin: 2px 0 0; padding: 0; list-style: none; background: #fff; border: 1px solid #888; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+  #projMenu li { padding: .35rem .6rem; cursor: pointer; white-space: nowrap; }
+  #projMenu li.hi, #projMenu li:hover { background: #e0e7ff; }
+  #projMenu li.empty { color: #888; cursor: default; background: none; }
+  #projMenu mark { background: #fde68a; color: inherit; }
+  .remove { color: #b91c1c; }
+  .danger { background: #dc2626; color: #fff; border-color: #dc2626; }
+  .danger:hover:not(:disabled) { background: #b91c1c; }
+  dialog { border: 1px solid #888; border-radius: 8px; padding: 1.25rem; width: min(420px, 92vw); }
+  dialog::backdrop { background: rgba(0,0,0,.4); }
+  dialog h2 { margin: 0 0 .75rem; font-size: 1.1rem; }
+  dialog label { display: flex; flex-direction: column; gap: .2rem; font-size: .85rem; color: #555; margin-bottom: .75rem; }
+  dialog input { font-size: 1rem; padding: .4rem; }
+  dialog .btns { display: flex; justify-content: flex-end; gap: .5rem; margin-top: 1rem; }
+  #npStatus { min-height: 1.1rem; font-size: .9rem; color: #b91c1c; }
+  .sumrow { display: grid; grid-template-columns: 160px 1fr auto; gap: .75rem; align-items: center; padding: .75rem 0; }
+  .sumrow .name { font-weight: 700; }
+  .sumbar { position: relative; display: flex; height: 22px; background: #e5e7eb; border-radius: 4px; overflow: hidden; }
+  .sumbar > div { height: 100%; }
+  .sumlabel { min-width: 3.5rem; text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+  .submitrow { display: flex; gap: 1rem; align-items: center; margin-top: 1rem; }
+  #info { color: #555; font-size: .9rem; }
+  #status { min-height: 1.2rem; font-size: .9rem; color: #b91c1c; }
+  #status.ok { color: #15803d; }
+  #sheet[hidden] { display: none; }
+  .topnav { display: flex; flex-wrap: wrap; gap: 1.25rem; margin-bottom: 1rem; font-size: .95rem; }
+  .topnav a { color: #2563eb; text-decoration: none; }
+  .topnav a:hover { text-decoration: underline; }
+  .topnav a[aria-current] { color: #222; font-weight: 600; }
+</style>
+</head>
+<body>
+<!-- <nav class="topnav">
+  <a href="index.html" aria-current="page">Timesheet</a>
+  <a href="staff.html">Staff</a>
+  <a href="projects.html">Projects</a>
+  <a href="reports.html">Reports</a>
+</nav> -->
+<h1>Monthly Timesheet</h1>
+
+<div class="pick">
+  <label>Team
+    <select id="team"></select>
+  </label>
+  <label>Name
+    <select id="staff"></select>
+  </label>
+<!--  <label>Month</label> -->
+  <button id="prev" title="Previous month">◀</button>
+  <input type="month" id="month">
+  <button id="next" title="Next month">▶</button>
+  <button class="linkbtn" id="newStaff" hidden>My name isn't listed</button>
+</div>
+
+<dialog id="npDialog">
+  <form id="npForm">
+    <h2>New project</h2>
+    <label>Project name (required)
+      <input type="text" id="npName" maxlength="100" autocomplete="off" required>
+    </label>
+    <label>Business unit
+      <input type="text" id="npBu" maxlength="100" autocomplete="off" list="buList">
+      <datalist id="buList"></datalist>
+    </label>
+    <label>Capability
+      <input type="text" id="npCap" maxlength="100" autocomplete="off" list="capList">
+      <datalist id="capList"></datalist>
+    </label>
+    <div id="npStatus"></div>
+    <div class="btns">
+      <button type="button" id="npCancel">Cancel</button>
+      <button type="submit" class="danger" id="npSave">Save project</button>
+    </div>
+  </form>
+</dialog>
+<div id="status"></div>
+
+<div id="sheet" hidden>
+  <div class="addrow">
+    <div class="combo">
+      <input type="text" id="projPick" placeholder="Search projects…" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="projMenu">
+      <ul id="projMenu" role="listbox" hidden></ul>
+    </div>
+    <button id="addProj">Add project to list</button>
+    <button id="copyPrev" title="Add the projects this person had on last month's timesheet (hours start at 0)">Copy last months projects</button>
+    <button class="danger" id="newProject">New project</button>
+  </div>
+  <div id="list"></div>
+  <div class="sumrow">
+    <div class="name">Total</div>
+    <div class="sumbar" id="sumbar"></div>
+    <div class="sumlabel" id="sumlabel">0 h</div>
+  </div>
+  <div class="submitrow">
+    <button class="primary" id="submit">Save</button>
+    <span id="info"></span>
+  </div>
+</div>
+
+<script>
+const BASE = 'https://joneetwkkgrqbxwhunut.supabase.co/rest/v1/';
+const KEY = 'sb_publishable_cjj3_AVozweyDGy2qqVP0Q_jMHFmnfk';
+const MAX = 160;
+const PALETTE = ['#2563eb', '#dc2626', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#db2777', '#65a30d', '#4f46e5', '#ea580c'];
+const headers = { apikey: KEY, Authorization: 'Bearer ' + KEY, 'Content-Type': 'application/json' };
+
+let staff = [];      // [{id, name}]
+let allProjects = []; // [{id, name, active}]
+const byName = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+const sortRows = () => rows.sort((a, b) => projName(a.project_id).localeCompare(projName(b.project_id), undefined, { sensitivity: 'base' }));
+let rows = [];       // [{project_id, hours}] working copy for the selected person/month
+let dirty = false;
+
+const $ = id => document.getElementById(id);
+const statusEl = $('status');
+
+function say(msg, ok) { statusEl.textContent = msg; statusEl.className = ok ? 'ok' : ''; }
+
+async function api(path, opts = {}) {
+  const res = await fetch(BASE + path, { ...opts, headers: { ...headers, ...(opts.headers || {}) } });
+  if (!res.ok) throw new Error(await res.text());
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} }
+};
+
+const projName = id => (allProjects.find(p => p.id === id) || {}).name || '?';
+const colorOf = id => PALETTE[Math.max(0, allProjects.findIndex(p => p.id === id)) % PALETTE.length];
+const monthStart = () => $('month').value + '-01';
+const staffId = () => +$('staff').value || null;
+
+function currentMonth() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+}
+
+const NO_TEAM = '__none__';
+const teamOf = s => (s.team || '').trim();
+const inTeam = s => { const f = $('team').value; return !f || (f === NO_TEAM ? !teamOf(s) : teamOf(s) === f); };
+
+function fillTeams(selected) {
+  const teams = [...new Set(staff.map(teamOf).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  $('team').innerHTML = '<option value="">All teams</option>' +
+    teams.map(t => `<option value="${esc(t).replace(/"/g, '&quot;')}">${esc(t)}</option>`).join('') +
+    (staff.some(s => !teamOf(s)) ? `<option value="${NO_TEAM}">(No team)</option>` : '');
+  $('team').value = [...$('team').options].some(o => o.value === selected) ? selected : '';
+}
+
+function fillStaff(selectId) {
+  const sel = $('staff');
+  sel.innerHTML = '<option value="">— pick your name —</option>' +
+    staff.filter(inTeam).map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+  if (selectId) sel.value = selectId;
+}
+
+function esc(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+
+let availProj = [], menuItems = [], hi = -1;
+const matches = () => { const q = $('projPick').value.trim().toLowerCase(); return availProj.filter(p => p.name.toLowerCase().includes(q)); };
+function hideMenu() { $('projMenu').hidden = true; $('projPick').setAttribute('aria-expanded', 'false'); hi = -1; }
+function showMenu() {
+  const q = $('projPick').value.trim();
+  menuItems = matches();
+  hi = menuItems.length ? 0 : -1;
+  const menu = $('projMenu');
+  if (!menuItems.length) menu.innerHTML = '<li class="empty">No matching projects</li>';
+  else {
+    const re = q ? new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig') : null;
+    menu.innerHTML = menuItems.map((p, i) =>
+      `<li role="option" data-i="${i}" class="${i === hi ? 'hi' : ''}">${re ? esc(p.name).replace(re, '<mark>$1</mark>') : esc(p.name)}</li>`).join('');
+  }
+  menu.hidden = false;
+  $('projPick').setAttribute('aria-expanded', 'true');
+}
+function highlight(i) {
+  hi = i;
+  [...$('projMenu').children].forEach((li, n) => { li.classList.toggle('hi', n === hi); if (n === hi) li.scrollIntoView({ block: 'nearest' }); });
+}
+function addProject(p) {
+  say('');
+  $('projPick').value = '';
+  hideMenu();
+  rows.push({ project_id: p.id, hours: 0 });
+  sortRows();
+  markDirty();
+  fillProjectPick();
+  render();
+}
+
+function fillProjectPick() {
+  const used = new Set(rows.map(r => r.project_id));
+  const avail = allProjects.filter(p => p.active && !used.has(p.id));
+  availProj = avail;
+  hideMenu();
+  $('projPick').placeholder = avail.length ? 'Search projects…' : '(all projects added)';
+  $('projPick').disabled = $('addProj').disabled = !avail.length;
+}
+
+function render() {
+  const list = $('list');
+  list.innerHTML = '';
+  for (const r of rows) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `
+      <div class="name"></div>
+      <div class="barwrap">
+        <button data-d="-1" title="Minus 1 hour">−</button>
+        <div class="bar" title="Drag to set hours"><div class="fill" style="width:${r.hours / MAX * 100}%;background:${colorOf(r.project_id)}"></div></div>
+        <button data-d="1" title="Plus 1 hour">+</button>
+      </div>
+      <span class="hrsbox"><input type="number" class="hrs" min="0" max="${MAX}" step="1" value="${r.hours}" aria-label="Hours"> h</span>
+      <button class="remove" title="Remove project" aria-label="Remove project"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg></button>`;
+    const nm = row.querySelector('.name');
+    nm.textContent = projName(r.project_id);
+    nm.title = nm.textContent;
+
+    const bar = row.querySelector('.bar');
+    const fill = row.querySelector('.fill');
+    const label = row.querySelector('.hrs');
+    const set = (h, fromTyping) => {
+      r.hours = Math.max(0, Math.min(MAX, Math.round(h) || 0));
+      fill.style.width = (r.hours / MAX * 100) + '%';
+      if (!fromTyping) label.value = r.hours;
+      markDirty();
+      updateTotal();
+    };
+    label.oninput = () => { if (label.value !== '') set(+label.value, true); };
+    label.onchange = () => { set(+label.value); };
+    label.onfocus = () => label.select();
+    label.onkeydown = e => { if (e.key === 'Enter') label.blur(); };
+    row.querySelectorAll('.barwrap > button').forEach(b => b.onclick = () => set(r.hours + +b.dataset.d));
+    row.querySelector('.remove').onclick = () => {
+      rows = rows.filter(x => x !== r);
+      markDirty();
+      fillProjectPick();
+      render();
+    };
+    const hoursAt = e => {
+      const rect = bar.getBoundingClientRect();
+      return Math.round((e.clientX - rect.left) / rect.width * MAX);
+    };
+    let dragging = false;
+    bar.onpointerdown = e => { dragging = true; bar.setPointerCapture(e.pointerId); fill.style.transition = 'none'; set(hoursAt(e)); };
+    bar.onpointermove = e => { if (dragging) set(hoursAt(e)); };
+    bar.onpointerup = bar.onpointercancel = () => { dragging = false; fill.style.transition = ''; };
+    list.appendChild(row);
+  }
+  updateTotal();
+}
+
+function updateTotal() {
+  const total = rows.reduce((s, r) => s + r.hours, 0);
+  $('sumlabel').textContent = total + ' h';
+  const scale = Math.max(MAX, total);
+  const bar = $('sumbar');
+  bar.style.setProperty('--step', (8 / scale * 100) + '%');
+  bar.innerHTML = '';
+  for (const r of rows) {
+    if (!r.hours) continue;
+    const seg = document.createElement('div');
+    seg.style.width = (r.hours / scale * 100) + '%';
+    seg.style.background = colorOf(r.project_id);
+    seg.title = projName(r.project_id) + ': ' + r.hours + ' h';
+    bar.appendChild(seg);
+  }
+}
+
+function markDirty() {
+  dirty = true;
+  $('info').textContent = 'Unsaved changes — press Save to record them.';
+}
+
+async function loadSheet() {
+  const sid = staffId();
+  if (!sid || !$('month').value) { $('sheet').hidden = true; return; }
+  store.set('ts_staff', sid);
+  try {
+    const data = await api(`ts_entries?select=project_id,hours,updated_at&staff_id=eq.${sid}&month=eq.${monthStart()}&order=id`);
+    rows = data.map(d => ({ project_id: d.project_id, hours: d.hours }));
+    sortRows();
+    dirty = false;
+    const last = data.map(d => d.updated_at).sort().pop();
+    $('info').textContent = last ? 'Last saved ' + new Date(last).toLocaleString() : 'Nothing saved yet for this month.';
+    say('');
+    $('sheet').hidden = false;
+    fillProjectPick();
+    render();
+  } catch (e) { say('Load failed: ' + e.message); }
+}
+
+async function submit() {
+  const sid = staffId();
+  const month = monthStart();
+  $('submit').disabled = true;
+  try {
+    const keep = rows.map(r => r.project_id);
+    // remove entries the person has dropped from their list
+    const del = keep.length ? `&project_id=not.in.(${keep.join(',')})` : '';
+    await api(`ts_entries?staff_id=eq.${sid}&month=eq.${month}${del}`, { method: 'DELETE' });
+    if (rows.length) {
+      const now = new Date().toISOString();
+      await api('ts_entries?on_conflict=staff_id,project_id,month', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify(rows.map(r => ({ staff_id: sid, project_id: r.project_id, month, hours: r.hours, updated_at: now })))
+      });
+    }
+    dirty = false;
+    $('info').textContent = 'Last saved ' + new Date().toLocaleString();
+    say('Saved. You can come back and update this any time this month.', true);
+  } catch (e) { say('Save failed: ' + e.message); }
+  $('submit').disabled = false;
+}
+
+// Searchable project picker: matches anywhere in the name; clicking a result (or Enter) adds it
+$('projPick').oninput = showMenu;
+$('projPick').onfocus = showMenu;
+$('projPick').onclick = () => { if ($('projMenu').hidden) showMenu(); };
+$('projPick').onkeydown = e => {
+  if (e.key === 'ArrowDown') { e.preventDefault(); if ($('projMenu').hidden) showMenu(); else if (menuItems.length) highlight((hi + 1) % menuItems.length); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); if (menuItems.length) highlight((hi - 1 + menuItems.length) % menuItems.length); }
+  else if (e.key === 'Escape') hideMenu();
+  else if (e.key === 'Enter') { e.preventDefault(); if (!$('projMenu').hidden && hi >= 0) addProject(menuItems[hi]); else $('addProj').click(); }
+};
+$('projMenu').onmousedown = e => { // mousedown so it fires before the input loses focus
+  const li = e.target.closest('li[data-i]');
+  if (li) { e.preventDefault(); addProject(menuItems[+li.dataset.i]); }
+};
+$('projMenu').onmousemove = e => { const li = e.target.closest('li[data-i]'); if (li && +li.dataset.i !== hi) highlight(+li.dataset.i); };
+document.addEventListener('mousedown', e => { if (!e.target.closest('.combo')) hideMenu(); });
+$('projPick').onblur = () => setTimeout(hideMenu, 100);
+$('addProj').onclick = () => {
+  if (!$('projPick').value.trim()) { showMenu(); $('projPick').focus(); return; }
+  const m = matches();
+  const exact = m.find(p => p.name.toLowerCase() === $('projPick').value.trim().toLowerCase());
+  const p = exact || (m.length === 1 ? m[0] : null);
+  if (!p) { say(m.length ? 'Several projects match - pick one from the list.' : 'No matching project.'); showMenu(); return; }
+  addProject(p);
+};
+
+$('newProject').onclick = () => {
+  const uniq = f => [...new Set(allProjects.map(p => (p[f] || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  $('buList').innerHTML = uniq('business_unit').map(v => `<option value="${esc(v).replace(/"/g, '&quot;')}">`).join('');
+  $('capList').innerHTML = uniq('capability').map(v => `<option value="${esc(v).replace(/"/g, '&quot;')}">`).join('');
+  $('npForm').reset();
+  $('npStatus').textContent = '';
+  $('npDialog').showModal();
+  $('npName').focus();
+};
+$('npCancel').onclick = () => $('npDialog').close();
+$('npForm').onsubmit = async e => {
+  e.preventDefault();
+  const name = $('npName').value.trim();
+  if (!name) { $('npStatus').textContent = 'Project name is required.'; return; }
+  if (allProjects.some(p => p.name.toLowerCase() === name.toLowerCase())) { $('npStatus').textContent = 'A project with that name already exists.'; return; }
+  $('npSave').disabled = true;
+  try {
+    const [row] = await api('ts_projects', {
+      method: 'POST', headers: { Prefer: 'return=representation' },
+      body: JSON.stringify({ name, business_unit: $('npBu').value.trim() || null, capability: $('npCap').value.trim() || null })
+    });
+    allProjects.push(row);
+    allProjects.sort(byName);
+    $('npDialog').close();
+    if (staffId() && !$('sheet').hidden) {
+      rows.push({ project_id: row.id, hours: 0 });
+      sortRows();
+      markDirty();
+      fillProjectPick();
+      render();
+      say('Added "' + row.name + '" and put it on your list at 0 hours.', true);
+    } else {
+      fillProjectPick();
+      say('Added "' + row.name + '". Pick your name to put it on your timesheet.', true);
+    }
+  } catch (err) {
+    $('npStatus').textContent = 'Could not save: ' + (/duplicate|409/i.test(err.message) ? 'a project with that name already exists.' : err.message);
+  }
+  $('npSave').disabled = false;
+};
+
+$('copyPrev').onclick = async () => {
+  const sid = staffId();
+  const [y, m] = $('month').value.split('-').map(Number);
+  if (!sid || !y) return;
+  const pd = new Date(y, m - 2, 1);
+  const prev = pd.getFullYear() + '-' + String(pd.getMonth() + 1).padStart(2, '0') + '-01';
+  const label = pd.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  $('copyPrev').disabled = true;
+  try {
+    const data = await api(`ts_entries?select=project_id&staff_id=eq.${sid}&month=eq.${prev}`);
+    const have = new Set(rows.map(r => r.project_id));
+    const add = data.map(d => d.project_id).filter(id => !have.has(id));
+    if (!data.length) { say('No projects found for ' + label + '.'); }
+    else if (!add.length) { say('All of ' + label + "'s projects are already on this timesheet.", true); }
+    else {
+      for (const id of add) rows.push({ project_id: id, hours: 0 });
+      sortRows();
+      markDirty();
+      fillProjectPick();
+      render();
+      say('Added ' + add.length + ' project' + (add.length === 1 ? '' : 's') + ' from ' + label + ' at 0 hours. Set the hours and press Save.', true);
+    }
+  } catch (e) { say('Copy failed: ' + e.message); }
+  $('copyPrev').disabled = false;
+};
+
+$('newStaff').onclick = async () => {
+  if (!confirmDiscard()) return;
+  const name = prompt('Enter your full name:');
+  if (!name || !name.trim()) return;
+  const existing = staff.find(s => s.name.toLowerCase() === name.trim().toLowerCase());
+  if (existing) {
+    if (!inTeam(existing)) { fillTeams(''); store.set('ts_team', ''); }
+    fillStaff(existing.id); prevStaff = String(existing.id); loadSheet(); return;
+  }
+  const id = parseInt((prompt('Enter your staff number:') || '').trim(), 10);
+  if (!id || id < 1) { say('A valid staff number is required to add a name.'); return; }
+  if (staff.some(s => s.id === id)) { say('Staff number ' + id + ' is already in use.'); return; }
+  try {
+    const f = $('team').value;
+    const team = f && f !== NO_TEAM ? f : null; // new names join the team currently being filtered
+    const [row] = await api('ts_staff', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ id, name: name.trim(), team }) });
+    staff.push(row);
+    staff.sort((a, b) => a.name.localeCompare(b.name));
+    if (!inTeam(row)) { fillTeams(''); store.set('ts_team', ''); }
+    fillStaff(row.id);
+    prevStaff = String(row.id);
+    loadSheet();
+  } catch (e) { say('Could not add name: ' + e.message); }
+};
+
+$('submit').onclick = submit;
+function confirmDiscard() { return !dirty || confirm('You have unsaved changes. Discard them?'); }
+let prevStaff = '', prevMonth = '', prevTeam = '';
+$('staff').onchange = () => {
+  if (!confirmDiscard()) { $('staff').value = prevStaff; return; }
+  prevStaff = $('staff').value; loadSheet();
+};
+$('team').onchange = () => {
+  const cur = staffId();
+  const stays = !cur || inTeam(staff.find(s => s.id === cur) || {});
+  // switching to a team that doesn't include the selected person clears the selection
+  if (!stays && !confirmDiscard()) { $('team').value = prevTeam; return; }
+  prevTeam = $('team').value;
+  store.set('ts_team', prevTeam);
+  fillStaff(stays ? cur : null);
+  if (!stays) { prevStaff = ''; loadSheet(); }
+};
+$('month').onchange = () => {
+  if (!confirmDiscard()) { $('month').value = prevMonth; return; }
+  prevMonth = $('month').value; loadSheet();
+};
+function shiftMonth(delta) {
+  const [y, m] = $('month').value.split('-').map(Number);
+  if (!y) return;
+  if (!confirmDiscard()) return;
+  const d = new Date(y, m - 1 + delta, 1);
+  $('month').value = prevMonth = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  loadSheet();
+}
+$('prev').onclick = () => shiftMonth(-1);
+$('next').onclick = () => shiftMonth(1);
+window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+
+(async () => {
+  try {
+    [staff, allProjects] = await Promise.all([
+      api('ts_staff?select=id,name,team&order=name'),
+      api('ts_projects?select=id,name,active,business_unit,capability')
+    ]);
+    allProjects.sort(byName);
+    $('month').value = prevMonth = currentMonth();
+    const saved = store.get('ts_staff');
+    const me = saved && staff.find(s => s.id === +saved);
+    fillTeams(store.get('ts_team') || '');
+    if (me && !inTeam(me)) fillTeams(''); // make sure the remembered person is still listed
+    prevTeam = $('team').value;
+    fillStaff(me ? me.id : null);
+    prevStaff = $('staff').value;
+    loadSheet();
+  } catch (e) { say('Load failed: ' + e.message); }
+})();
+</script>
+</body>
+</html>

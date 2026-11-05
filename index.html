@@ -95,9 +95,9 @@
       <input type="text" id="npBu" maxlength="100" autocomplete="off" list="buList">
       <datalist id="buList"></datalist>
     </label>
-    <label>Capability
-      <input type="text" id="npCap" maxlength="100" autocomplete="off" list="capList">
-      <datalist id="capList"></datalist>
+    <label>Finance Project
+      <input type="text" id="npCap" maxlength="100" autocomplete="off" list="finProjList">
+      <datalist id="finProjList"></datalist>
     </label>
     <div id="npStatus"></div>
     <div class="btns">
@@ -379,7 +379,7 @@ $('addProj').onclick = () => {
 $('newProject').onclick = () => {
   const uniq = f => [...new Set(allProjects.map(p => (p[f] || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
   $('buList').innerHTML = uniq('business_unit').map(v => `<option value="${esc(v).replace(/"/g, '&quot;')}">`).join('');
-  $('capList').innerHTML = uniq('capability').map(v => `<option value="${esc(v).replace(/"/g, '&quot;')}">`).join('');
+  $('finProjList').innerHTML = uniq('finance_project').map(v => `<option value="${esc(v).replace(/"/g, '&quot;')}">`).join('');
   $('npForm').reset();
   $('npStatus').textContent = '';
   $('npDialog').showModal();
@@ -395,7 +395,7 @@ $('npForm').onsubmit = async e => {
   try {
     const [row] = await api('ts_projects', {
       method: 'POST', headers: { Prefer: 'return=representation' },
-      body: JSON.stringify({ name, business_unit: $('npBu').value.trim() || null, capability: $('npCap').value.trim() || null })
+      body: JSON.stringify({ name, business_unit: $('npBu').value.trim() || null, finance_project: $('npCap').value.trim() || null })
     });
     allProjects.push(row);
     allProjects.sort(byName);
@@ -505,7 +505,7 @@ window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); 
   try {
     [staff, allProjects] = await Promise.all([
       api('ts_staff?select=id,name,team&order=name'),
-      api('ts_projects?select=id,name,active,business_unit,capability')
+      api('ts_projects?select=id,name,active,business_unit,finance_project')
     ]);
     allProjects.sort(byName);
     $('month').value = prevMonth = currentMonth();

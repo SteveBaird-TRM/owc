@@ -94,7 +94,7 @@ const TABS = [
   { id: 'staff',   label: 'By staff',         rowHead: 'Staff',         title: 'Hours by staff and project', none: 'nothing submitted' },
   { id: 'project', label: 'By project',       rowHead: 'Project',       title: 'Hours by project and staff', none: 'no hours' },
   { id: 'bu',      label: 'By business unit', rowHead: 'Business Unit', title: 'Hours by business unit and project', none: 'no hours', field: 'business_unit', hidden: true },
-  { id: 'cap',     label: 'By capability',    rowHead: 'Capability',    title: 'Hours by capability and project', none: 'no hours', field: 'capability', hidden: true }
+  { id: 'cap',     label: 'By finance project',    rowHead: 'Finance Project',    title: 'Hours by finance project and project name', none: 'no hours', field: 'finance_project', hidden: true }
 ];
 
 // Build the model for a tab: rows (what each bar/line is), cols (the stacked segments), and cell(row, col) => hours
@@ -119,7 +119,7 @@ function model(t) {
     return { rows, cols: staff, cell: (r, c) => (h[c.id] || {})[r.id] || 0,
              colsUsed: staff_.filter(s => entries_.some(e => e.staff_id === s.id)) };
   }
-  // business unit / capability: group projects by the field
+  // business unit / finance_project: group projects by the field
   const groupOf = p => (p[t.field] || '').trim() || UNASSIGNED;
   const pmap = Object.fromEntries(projects.map(p => [p.id, p]));
   const visible = projects.filter(p => p.active || projHas(p));
@@ -364,7 +364,7 @@ $('month').onchange = load;
   try {
     [staff, projects] = await Promise.all([
       api('ts_staff?select=id,name,team'),
-      api('ts_projects?select=id,name,active,business_unit,capability')
+      api('ts_projects?select=id,name,active,business_unit,finance_project')
     ]);
     staff.sort(byName);
     projects.sort(byName);

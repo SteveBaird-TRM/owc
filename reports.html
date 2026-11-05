@@ -64,8 +64,6 @@
 <div id="status"></div>
 <div class="legend" id="legend"></div>
 <div id="bars"></div>
-<h2 id="gridtitle"></h2>
-<div class="tablewrap"><table id="grid"></table></div>
 
 <!-- xlsx-js-style = SheetJS plus cell formatting (the plain SheetJS build can't write styles) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
@@ -143,7 +141,6 @@ function render() {
   const m = model(t);
   const colorOf = c => PALETTE[m.cols.indexOf(c) % PALETTE.length];
   const rowTotal = r => sum(m.cols.map(c => m.cell(r, c)));
-  const grand = sum(m.rows.map(rowTotal));
 
   $('legend').innerHTML = m.colsUsed.map(c =>
     `<span><i class="sw" style="background:${colorOf(c)}"></i>${esc(c.name)}</span>`).join('');
@@ -184,24 +181,6 @@ function render() {
     bars.appendChild(row);
   }
   if (!shown) bars.innerHTML = '<p>Nothing to show yet.</p>';
-
-  $('gridtitle').textContent = t.title;
-  const grid = $('grid');
-  if (!m.colsUsed.length) {
-    grid.innerHTML = '<tbody><tr><td>No hours recorded for this month.</td></tr></tbody>';
-    return;
-  }
-  let html = `<thead><tr><th>${t.rowHead}</th>` +
-    m.colsUsed.map(c => `<th>${esc(c.name)}</th>`).join('') + '<th class="rt">Total</th></tr></thead><tbody>';
-  for (const r of m.rows) {
-    html += `<tr><td>${esc(r.name)}</td>` + m.colsUsed.map(c => {
-      const hh = m.cell(r, c);
-      return `<td class="${hh ? '' : 'zero'}">${hh || '–'}</td>`;
-    }).join('') + `<td class="rt">${rowTotal(r)}</td></tr>`;
-  }
-  html += '</tbody><tfoot><tr><td>Total</td>' +
-    m.colsUsed.map(c => `<td>${sum(m.rows.map(r => m.cell(r, c)))}</td>`).join('') + `<td>${grand}</td></tr></tfoot>`;
-  grid.innerHTML = html;
 }
 
 function drawTabs() {

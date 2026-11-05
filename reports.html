@@ -46,6 +46,7 @@
   <a href="admin.html">Timesheet</a>
   <a href="staff.html">Staff</a>
   <a href="projects.html">Projects</a>
+  <a href="months.html">Months</a>
   <a href="reports.html" aria-current="page">Reports</a>
 </nav>
 <h1>Reports</h1>
@@ -226,19 +227,24 @@ function downloadSpreadsheet() {
   const col = i => { let s = ''; for (i++; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + (i - 1) % 26) + s; return s; };
   const firstP = 2, lastP = 1 + projs.length, totalC = lastP + 1; // zero-based column indexes
   const n = m.rows.length;
-  const aoa = [['Name', 'Staff ID', ...projs.map(p => p.name), 'Staff hours']];
+  // Optional first row: finance project above each project name (only if any project has one)
+  const hasFin = projs.some(p => (p.finance_project || '').trim());
+  const o = hasFin ? 1 : 0; // number of rows above the header row
+  const aoa = [];
+  if (hasFin) aoa.push(['Finance Project', '', ...projs.map(p => (p.finance_project || '').trim()), '']);
+  aoa.push(['Name', 'Staff ID', ...projs.map(p => p.name), 'Staff hours']);
   m.rows.forEach((r, i) => {
     const vals = projs.map(p => m.cell(r, p));
     const line = [r.name, r.id, ...vals];
     line.push(projs.length
-      ? { t: 'n', v: sum(vals), f: `SUM(${col(firstP)}${i + 2}:${col(lastP)}${i + 2})` }
+      ? { t: 'n', v: sum(vals), f: `SUM(${col(firstP)}${i + 2 + o}:${col(lastP)}${i + 2 + o})` }
       : { t: 'n', v: 0 });
     aoa.push(line);
   });
   const colSums = projs.map(p => sum(m.rows.map(r => m.cell(r, p))));
   const foot = ['Project hours', ''];
-  projs.forEach((p, j) => foot.push(n ? { t: 'n', v: colSums[j], f: `SUM(${col(firstP + j)}2:${col(firstP + j)}${n + 1})` } : { t: 'n', v: 0 }));
-  foot.push(n ? { t: 'n', v: sum(colSums), f: `SUM(${col(totalC)}2:${col(totalC)}${n + 1})` } : { t: 'n', v: 0 });
+  projs.forEach((p, j) => foot.push(n ? { t: 'n', v: colSums[j], f: `SUM(${col(firstP + j)}${2 + o}:${col(firstP + j)}${n + 1 + o})` } : { t: 'n', v: 0 }));
+  foot.push(n ? { t: 'n', v: sum(colSums), f: `SUM(${col(totalC)}${2 + o}:${col(totalC)}${n + 1 + o})` } : { t: 'n', v: 0 });
   aoa.push(foot);
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
@@ -249,13 +255,14 @@ function downloadSpreadsheet() {
     (ws[a] ||= { t: 's', v: '' }).s = s;
   };
   for (let c = 0; c <= totalC; c++) {
-    setStyle(0, c, { font: { bold: true } });
-    setStyle(n + 1, c, { font: { bold: true }, fill: { patternType: 'solid', fgColor: { rgb: 'D8E8F8' } } });
+    if (hasFin) setStyle(0, c, { font: { bold: true, italic: true, color: { rgb: 'FF0000' } } });
+    setStyle(o, c, { font: { bold: true } });
+    setStyle(n + 1 + o, c, { font: { bold: true }, fill: { patternType: 'solid', fgColor: { rgb: 'D8E8F8' } } });
   }
   const staffFill = { patternType: 'solid', fgColor: { rgb: 'D0D0D0' } };
-  setStyle(0, totalC, { font: { bold: true }, fill: staffFill });
-  for (let r = 1; r <= n; r++) setStyle(r, totalC, { font: { bold: true }, fill: staffFill });
-  ws['!freeze'] = { xSplit: 2, ySplit: 1 };
+  setStyle(o, totalC, { font: { bold: true }, fill: staffFill });
+  for (let r = 1 + o; r <= n + o; r++) setStyle(r, totalC, { font: { bold: true }, fill: staffFill });
+  ws['!freeze'] = { xSplit: 2, ySplit: 1 + o };
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Hours');
   XLSX.writeFile(wb, `hours-${$('month').value}.xlsx`);

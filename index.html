@@ -51,6 +51,7 @@
   .sumbar { position: relative; display: flex; height: 22px; background: #e5e7eb; border-radius: 4px; overflow: hidden; }
   .sumbar > div { height: 100%; }
   .sumlabel { min-width: 3.5rem; text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+  .lockNote { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; border-radius: 4px; padding: .5rem .75rem; margin-top: 1rem; }
   .submitrow { display: flex; gap: 1rem; align-items: center; margin-top: 1rem; }
   #info { color: #555; font-size: .9rem; }
   #status { min-height: 1.2rem; font-size: .9rem; color: #b91c1c; }
@@ -67,6 +68,7 @@
   <a href="index.html" aria-current="page">Timesheet</a>
   <a href="staff.html">Staff</a>
   <a href="projects.html">Projects</a>
+  <a href="months.html">Months</a>
   <a href="reports.html">Reports</a>
 </nav> -->
 <h1>OWC Record</h1>
@@ -124,6 +126,7 @@
     <div class="sumbar" id="sumbar"></div>
     <div class="sumlabel" id="sumlabel">0 h</div>
   </div>
+  <div class="lockNote" id="lockNote" hidden>This month is locked. Hours can be viewed but not changed. Ask an administrator to unlock it if a correction is needed.</div>
   <div class="submitrow">
     <button class="primary" id="submit">Save</button>
     <span id="info"></span>
@@ -143,6 +146,7 @@ const byName = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 
 const sortRows = () => rows.sort((a, b) => projName(a.project_id).localeCompare(projName(b.project_id), undefined, { sensitivity: 'base' }));
 let rows = [];       // [{project_id, hours}] working copy for the selected person/month
 let dirty = false;
+let locked = false;  // is the selected month locked?
 
 const $ = id => document.getElementById(id);
 const statusEl = $('status');
@@ -303,6 +307,16 @@ function updateTotal() {
   }
 }
 
+// Locked months: show a banner and make the sheet read-only (the database also refuses the writes)
+function applyLock() {
+  $('lockNote').hidden = !locked;
+  const sheet = $('sheet');
+  sheet.querySelectorAll('input, button').forEach(el => { if (locked) el.disabled = true; });
+  sheet.querySelectorAll('.bar').forEach(b => { b.style.pointerEvents = locked ? 'none' : ''; });
+  $('submit').disabled = locked;
+  $('copyPrev').disabled = locked;
+}
+
 function markDirty() {
   dirty = true;
   $('info').textContent = 'Unsaved changes — press Save to record them.';
@@ -314,6 +328,7 @@ async function loadSheet() {
   store.set('ts_staff', sid);
   try {
     const data = await api(`ts_entries?select=project_id,hours,updated_at&staff_id=eq.${sid}&month=eq.${monthStart()}&order=id`);
+    locked = (await api(`ts_month_locks?select=month&locked=eq.true&month=eq.${monthStart()}`)).length > 0;
     rows = data.map(d => ({ project_id: d.project_id, hours: d.hours }));
     sortRows();
     dirty = false;
@@ -323,6 +338,7 @@ async function loadSheet() {
     $('sheet').hidden = false;
     fillProjectPick();
     render();
+    applyLock();
   } catch (e) { say('Load failed: ' + e.message); }
 }
 
@@ -346,8 +362,8 @@ async function submit() {
     dirty = false;
     $('info').textContent = 'Last saved ' + new Date().toLocaleString();
     say('Saved. You can come back and update this any time this month.', true);
-  } catch (e) { say('Save failed: ' + e.message); }
-  $('submit').disabled = false;
+  } catch (e) { say(/is locked/.test(e.message) ? 'Save failed: this month has been locked. Reload the page.' : 'Save failed: ' + e.message); }
+  $('submit').disabled = locked;
 }
 
 // Searchable project picker: matches anywhere in the name; clicking a result (or Enter) adds it

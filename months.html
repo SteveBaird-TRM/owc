@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manage Months</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 1000px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  button { cursor: pointer; border: 1px solid #888; background: #f4f4f4; border-radius: 4px; padding: .3rem .7rem; font-size: 1rem; min-width: 7rem; }
+  button:hover { background: #e6e6e6; }
+  button:disabled { cursor: default; opacity: .6; }
+  .lockbtn { background: #fef2f2; border-color: #dc2626; color: #991b1b; }
+  .lockbtn:hover { background: #fee2e2; }
+  .row { display: flex; align-items: center; gap: .75rem; padding: .5rem 0; border-bottom: 1px solid #eee; }
+  .mname { flex: 1; font-weight: 600; }
+  .stat { width: 9rem; color: #555; font-size: .9rem; text-align: right; }
+  .state { width: 5.5rem; font-size: .9rem; }
+  .state.locked { color: #991b1b; font-weight: 600; }
+  .state.open { color: #15803d; }
+  .note { color: #666; font-size: .9rem; }
+  #status { min-height: 1.2rem; font-size: .9rem; color: #b91c1c; }
+  #status.ok { color: #15803d; }
+  .topnav { display: flex; flex-wrap: wrap; gap: 1.25rem; margin-bottom: 1rem; font-size: .95rem; }
+  .topnav a { color: #2563eb; text-decoration: none; }
+  .topnav a:hover { text-decoration: underline; }
+  .topnav a[aria-current] { color: #222; font-weight: 600; }
+</style>
+</head>
+<body>
+<nav class="topnav">
+  <a href="admin.html">Timesheet</a>
+  <a href="staff.html">Staff</a>
+  <a href="projects.html">Projects</a>
+  <a href="months.html" aria-current="page">Months</a>
+  <a href="reports.html">Reports</a>
+</nav>
+<h1>Manage Months</h1>
+<p class="note">Lock a month to stop any hours being added, changed or removed for it. Locked months can still be viewed and reported on. Unlock a month to allow corrections.</p>
+
+<div id="status"></div>
+<div id="list"></div>
+
+<script>
+const BASE = 'https://joneetwkkgrqbxwhunut.supabase.co/rest/v1/';
+const KEY = 'sb_publishable_cjj3_AVozweyDGy2qqVP0Q_jMHFmnfk';
+const headers = { apikey: KEY, Authorization: 'Bearer ' + KEY, 'Content-Type': 'application/json' };
+let months = []; // [{month: 'YYYY-MM-DD', entries, staff, hours, locked}]
+
+const $ = id => document.getElementById(id);
+function say(msg, ok) { $('status').textContent = msg; $('status').className = ok ? 'ok' : ''; }
+
+async function api(path, opts = {}) {
+  const res = await fetch(BASE + path, { ...opts, headers: { ...headers, ...(opts.headers || {}) } });
+  if (!res.ok) throw new Error(await res.text());
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+const label = m => {
+  const [y, mo] = m.split('-').map(Number);
+  return new Date(y, mo - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+};
+
+function render() {
+  const list = $('list');
+  list.innerHTML = '';
+  if (!months.length) { list.innerHTML = '<p class="note">No months with data yet.</p>'; return; }
+  months.forEach(m => {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = '<span class="mname"></span><span class="stat"></span><span class="state"></span><button></button>';
+    row.querySelector('.mname').textContent = label(m.month);
+    row.querySelector('.stat').textContent = m.staff + ' staff, ' + m.hours + ' h';
+    const st = row.querySelector('.state');
+    st.textContent = m.locked ? 'Locked' : 'Open';
+    st.className = 'state ' + (m.locked ? 'locked' : 'open');
+    const btn = row.querySelector('button');
+    btn.textContent = m.locked ? 'Unlock' : 'Lock';
+    if (!m.locked) btn.className = 'lockbtn';
+    btn.onclick = async () => {
+      btn.disabled = true;
+      const locked = !m.locked;
+      try {
+        await api('ts_month_locks?on_conflict=month', {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates' },
+          body: JSON.stringify({ month: m.month, locked, locked_at: new Date().toISOString() })
+        });
+        m.locked = locked;
+        say(label(m.month) + (locked ? ' is now locked.' : ' is now unlocked.'), true);
+      } catch (e) { say('Update failed: ' + e.message); }
+      render();
+    };
+    list.appendChild(row);
+  });
+}
+
+(async () => {
+  try {
+    months = await api('ts_month_summary?select=month,entries,staff,hours,locked&order=month.desc');
+    render();
+  } catch (e) { say('Load failed: ' + e.message); }
+})();
+</script>
+</body>
+</html>

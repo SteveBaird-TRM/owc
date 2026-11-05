@@ -43,7 +43,7 @@
 </head>
 <body>
 <nav class="topnav">
-  <a href="index.html">Timesheet</a>
+  <a href="admin.html">Timesheet</a>
   <a href="staff.html">Staff</a>
   <a href="projects.html">Projects</a>
   <a href="reports.html" aria-current="page">Reports</a>
@@ -57,6 +57,7 @@
   <select id="team" title="Filter by team"></select>
   <label><input type="checkbox" id="hidezero"> Hide zero hours</label>
   <button id="refresh">Refresh</button>
+  <button id="xlsx" title="Download the month's hours per person per project as an Excel spreadsheet">Download spreadsheet</button>
   <button id="export" title="Download the graph as a standalone HTML file (no staff names, no table)" hidden>Export HTML</button>
 </div>
 <div id="status"></div>
@@ -65,6 +66,8 @@
 <h2 id="gridtitle"></h2>
 <div class="tablewrap"><table id="grid"></table></div>
 
+<!-- xlsx-js-style = SheetJS plus cell formatting (the plain SheetJS build can't write styles) -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script>
 const BASE = 'https://joneetwkkgrqbxwhunut.supabase.co/rest/v1/';
 const KEY = 'sb_publishable_cjj3_AVozweyDGy2qqVP0Q_jMHFmnfk';
@@ -90,8 +93,8 @@ let tab = 'staff';
 const TABS = [
   { id: 'staff',   label: 'By staff',         rowHead: 'Staff',         title: 'Hours by staff and project', none: 'nothing submitted' },
   { id: 'project', label: 'By project',       rowHead: 'Project',       title: 'Hours by project and staff', none: 'no hours' },
-  { id: 'bu',      label: 'By business unit', rowHead: 'Business Unit', title: 'Hours by business unit and project', none: 'no hours', field: 'business_unit' },
-  { id: 'cap',     label: 'By capability',    rowHead: 'Capability',    title: 'Hours by capability and project', none: 'no hours', field: 'capability' }
+  { id: 'bu',      label: 'By business unit', rowHead: 'Business Unit', title: 'Hours by business unit and project', none: 'no hours', field: 'business_unit', hidden: true },
+  { id: 'cap',     label: 'By capability',    rowHead: 'Capability',    title: 'Hours by capability and project', none: 'no hours', field: 'capability', hidden: true }
 ];
 
 // Build the model for a tab: rows (what each bar/line is), cols (the stacked segments), and cell(row, col) => hours
@@ -204,6 +207,7 @@ function drawTabs() {
   $('export').hidden = tab !== 'project';
   $('tabs').innerHTML = '';
   for (const t of TABS) {
+    if (t.hidden) continue; // hidden tabs keep their code; remove `hidden: true` in TABS to show them again
     const b = document.createElement('button');
     b.textContent = t.label;
     b.setAttribute('role', 'tab');
@@ -211,6 +215,48 @@ function drawTabs() {
     b.onclick = () => { tab = t.id; history.replaceState(null, '', '#' + tab); drawTabs(); render(); };
     $('tabs').appendChild(b);
   }
+}
+
+// Excel download: one row per person (Name, Staff ID, hours per project, Staff hours) and a Project hours total row.
+// Uses the selected month and the team filter. Sums are live Excel formulas.
+function downloadSpreadsheet() {
+  if (typeof XLSX === 'undefined') { $('status').textContent = 'Spreadsheet library did not load (check your internet connection).'; return; }
+  const m = model(TABS.find(x => x.id === 'staff'));
+  const projs = m.colsUsed;
+  const col = i => { let s = ''; for (i++; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + (i - 1) % 26) + s; return s; };
+  const firstP = 2, lastP = 1 + projs.length, totalC = lastP + 1; // zero-based column indexes
+  const n = m.rows.length;
+  const aoa = [['Name', 'Staff ID', ...projs.map(p => p.name), 'Staff hours']];
+  m.rows.forEach((r, i) => {
+    const vals = projs.map(p => m.cell(r, p));
+    const line = [r.name, r.id, ...vals];
+    line.push(projs.length
+      ? { t: 'n', v: sum(vals), f: `SUM(${col(firstP)}${i + 2}:${col(lastP)}${i + 2})` }
+      : { t: 'n', v: 0 });
+    aoa.push(line);
+  });
+  const colSums = projs.map(p => sum(m.rows.map(r => m.cell(r, p))));
+  const foot = ['Project hours', ''];
+  projs.forEach((p, j) => foot.push(n ? { t: 'n', v: colSums[j], f: `SUM(${col(firstP + j)}2:${col(firstP + j)}${n + 1})` } : { t: 'n', v: 0 }));
+  foot.push(n ? { t: 'n', v: sum(colSums), f: `SUM(${col(totalC)}2:${col(totalC)}${n + 1})` } : { t: 'n', v: 0 });
+  aoa.push(foot);
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 28 }, { wch: 10 }, ...projs.map(() => ({ wch: 14 })), { wch: 12 }];
+  // Formatting: bold header row; bold grey "Project hours" row; blue "Staff hours" text
+  const setStyle = (r, c, s) => {
+    const a = XLSX.utils.encode_cell({ r, c });
+    (ws[a] ||= { t: 's', v: '' }).s = s;
+  };
+  for (let c = 0; c <= totalC; c++) {
+    setStyle(0, c, { font: { bold: true } });
+    setStyle(n + 1, c, { font: { bold: true }, fill: { patternType: 'solid', fgColor: { rgb: 'D0D0D0' } } });
+  }
+  for (let r = 1; r <= n; r++) setStyle(r, totalC, { font: { color: { rgb: '0000FF' } } });
+  ws['!freeze'] = { xSplit: 2, ySplit: 1 };
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Hours');
+  XLSX.writeFile(wb, `hours-${$('month').value}.xlsx`);
 }
 
 // Standalone HTML of the By project graph: project bars only, no staff names (legend/tooltips) and no table.
@@ -302,6 +348,7 @@ function fillTeams() {
   $('team').value = [...$('team').options].some(o => o.value === cur) ? cur : '';
 }
 $('export').onclick = exportProjectHtml;
+$('xlsx').onclick = downloadSpreadsheet;
 $('month').onchange = load;
 
 (async () => {

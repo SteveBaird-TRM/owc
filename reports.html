@@ -250,9 +250,11 @@ function downloadSpreadsheet() {
   };
   for (let c = 0; c <= totalC; c++) {
     setStyle(0, c, { font: { bold: true } });
-    setStyle(n + 1, c, { font: { bold: true }, fill: { patternType: 'solid', fgColor: { rgb: 'D0D0D0' } } });
+    setStyle(n + 1, c, { font: { bold: true }, fill: { patternType: 'solid', fgColor: { rgb: 'D8E8F8' } } });
   }
-  for (let r = 1; r <= n; r++) setStyle(r, totalC, { font: { color: { rgb: '0000FF' } } });
+  const staffFill = { patternType: 'solid', fgColor: { rgb: 'D0D0D0' } };
+  setStyle(0, totalC, { font: { bold: true }, fill: staffFill });
+  for (let r = 1; r <= n; r++) setStyle(r, totalC, { font: { bold: true }, fill: staffFill });
   ws['!freeze'] = { xSplit: 2, ySplit: 1 };
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Hours');

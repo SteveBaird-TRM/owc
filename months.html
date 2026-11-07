@@ -9,14 +9,14 @@
   button { cursor: pointer; border: 1px solid #888; background: #f4f4f4; border-radius: 4px; padding: .3rem .7rem; font-size: 1rem; min-width: 7rem; }
   button:hover { background: #e6e6e6; }
   button:disabled { cursor: default; opacity: .6; }
-  .lockbtn { background: #fef2f2; border-color: #dc2626; color: #991b1b; }
-  .lockbtn:hover { background: #fee2e2; }
+  .toggle { min-width: 5rem; color: #fff; }
+  .toggle.open { background: #16a34a; border-color: #16a34a; }
+  .toggle.open:hover { background: #15803d; }
+  .toggle.locked { background: #dc2626; border-color: #dc2626; }
+  .toggle.locked:hover { background: #b91c1c; }
   .row { display: flex; align-items: center; gap: .75rem; padding: .5rem 0; border-bottom: 1px solid #eee; }
   .mname { flex: 1; font-weight: 600; }
   .stat { width: 9rem; color: #555; font-size: .9rem; text-align: right; }
-  .state { width: 5.5rem; font-size: .9rem; }
-  .state.locked { color: #991b1b; font-weight: 600; }
-  .state.open { color: #15803d; }
   .note { color: #666; font-size: .9rem; }
   #status { min-height: 1.2rem; font-size: .9rem; color: #b91c1c; }
   #status.ok { color: #15803d; }
@@ -35,7 +35,7 @@
   <a href="reports.html">Reports</a>
 </nav>
 <h1>Manage Months</h1>
-<p class="note">Lock a month to stop any hours being added, changed or removed for it. Locked months can still be viewed and reported on. Unlock a month to allow corrections.</p>
+<p class="note">Switch a month to Locked to stop any hours being added, changed or removed for it. Locked months can still be viewed and reported on. Switch it back to Open to allow corrections.</p>
 
 <div id="status"></div>
 <div id="list"></div>
@@ -68,15 +68,13 @@ function render() {
   months.forEach(m => {
     const row = document.createElement('div');
     row.className = 'row';
-    row.innerHTML = '<span class="mname"></span><span class="stat"></span><span class="state"></span><button></button>';
+    row.innerHTML = '<span class="mname"></span><span class="stat"></span><button></button>';
     row.querySelector('.mname').textContent = label(m.month);
     row.querySelector('.stat').textContent = m.staff + ' staff, ' + m.hours + ' h';
-    const st = row.querySelector('.state');
-    st.textContent = m.locked ? 'Locked' : 'Open';
-    st.className = 'state ' + (m.locked ? 'locked' : 'open');
     const btn = row.querySelector('button');
-    btn.textContent = m.locked ? 'Unlock' : 'Lock';
-    if (!m.locked) btn.className = 'lockbtn';
+    btn.textContent = m.locked ? 'Locked' : 'Open';
+    btn.className = 'toggle ' + (m.locked ? 'locked' : 'open');
+    btn.title = m.locked ? 'Click to switch to Open' : 'Click to switch to Locked';
     btn.onclick = async () => {
       btn.disabled = true;
       const locked = !m.locked;

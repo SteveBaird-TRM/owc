@@ -11,6 +11,11 @@
   .row input[type=text] { flex: 0 1 150px; font-size: .9rem; padding: .25rem; }
   button { cursor: pointer; border: 1px solid #888; background: #f4f4f4; border-radius: 4px; padding: .3rem .7rem; font-size: 1rem; }
   button:hover { background: #e6e6e6; }
+  .toggle { min-width: 4rem; color: #fff; }
+  .toggle.on { background: #16a34a; border-color: #16a34a; }
+  .toggle.on:hover { background: #15803d; }
+  .toggle.off { background: #9ca3af; border-color: #9ca3af; }
+  .toggle.off:hover { background: #6b7280; }
   .primary { background: #2563eb; color: #fff; border-color: #2563eb; }
   .primary:hover { background: #1d4ed8; }
   .row { display: flex; align-items: center; gap: .75rem; padding: .5rem 0; border-bottom: 1px solid #eee; }
@@ -35,7 +40,7 @@
   <a href="reports.html">Reports</a>
 </nav>
 <h1>Manage Projects</h1>
-<p class="note">Projects added here appear in the timesheet dropdown. Deactivating a project hides it from the dropdown but keeps existing hours.</p>
+<p class="note">Projects added here appear in the timesheet dropdown. Switching a project Off hides it from the dropdown but keeps existing hours.</p>
 
 <form id="form">
   <input type="text" id="name" placeholder="New project name" maxlength="100" autocomplete="off" required>
@@ -91,7 +96,9 @@ function render() {
       };
     });
     const btn = row.querySelector('button');
-    btn.textContent = p.active ? 'Deactivate' : 'Reactivate';
+    btn.textContent = p.active ? 'On' : 'Off';
+    btn.className = 'toggle ' + (p.active ? 'on' : 'off');
+    btn.title = p.active ? 'Click to switch Off' : 'Click to switch On';
     btn.onclick = async () => {
       try {
         await api('?id=eq.' + p.id, { method: 'PATCH', body: JSON.stringify({ active: !p.active }) });

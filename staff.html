@@ -15,6 +15,12 @@
   .snum { width: 4.5rem; color: #666; font-variant-numeric: tabular-nums; }
   button { cursor: pointer; border: 1px solid #888; background: #f4f4f4; border-radius: 4px; padding: .3rem .7rem; font-size: 1rem; }
   button:hover { background: #e6e6e6; }
+  .toggle { min-width: 4rem; color: #fff; }
+  .toggle.on { background: #16a34a; border-color: #16a34a; }
+  .toggle.on:hover { background: #15803d; }
+  .toggle.off { background: #9ca3af; border-color: #9ca3af; }
+  .toggle.off:hover { background: #6b7280; }
+  .inactive .sname { color: #999; text-decoration: line-through; }
   .primary { background: #2563eb; color: #fff; border-color: #2563eb; }
   .primary:hover { background: #1d4ed8; }
   .row { display: flex; align-items: center; gap: .75rem; padding: .5rem 0; border-bottom: 1px solid #eee; }
@@ -37,7 +43,7 @@
   <a href="reports.html">Reports</a>
 </nav>
 <h1>Manage Staff</h1>
-<p class="note">Names added here appear in the timesheet name dropdown. Renaming keeps all recorded hours.</p>
+<p class="note">Names added here appear in the timesheet name dropdown. Renaming keeps all recorded hours. Switching a person Off hides them from the dropdown but keeps existing hours.</p>
 
 <form id="form">
   <input type="number" id="num" placeholder="Staff no." min="1" step="1" required>
@@ -75,8 +81,20 @@ function render() {
   list.innerHTML = '';
   for (const s of staff) {
     const row = document.createElement('div');
-    row.className = 'row';
-    row.innerHTML = '<span class="snum"></span><span class="sname"></span><span class="steam"></span><button class="ren">Rename</button><button class="tm">Team</button>';
+    row.className = 'row' + (s.active ? '' : ' inactive');
+    row.innerHTML = '<span class="snum"></span><span class="sname"></span><span class="steam"></span><button class="ren">Rename</button><button class="tm">Team</button><button class="act"></button>';
+    const act = row.querySelector('.act');
+    act.textContent = s.active ? 'On' : 'Off';
+    act.className = 'act toggle ' + (s.active ? 'on' : 'off');
+    act.title = s.active ? 'Click to switch Off' : 'Click to switch On';
+    act.onclick = async () => {
+      try {
+        await api('?id=eq.' + s.id, { method: 'PATCH', body: JSON.stringify({ active: !s.active }) });
+        s.active = !s.active;
+        say('');
+        render();
+      } catch (e) { say('Update failed: ' + e.message); }
+    };
     row.querySelector('.snum').textContent = s.id;
     row.querySelector('.sname').textContent = s.name;
     row.querySelector('.steam').textContent = s.team || '';
@@ -129,7 +147,7 @@ $('form').onsubmit = async e => {
 
 (async () => {
   try {
-    staff = await api('?select=id,name,team&order=name');
+    staff = await api('?select=id,name,team,active&order=name');
     render();
   } catch (e) { say('Load failed: ' + e.message); }
 })();

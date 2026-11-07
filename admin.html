@@ -519,7 +519,7 @@ window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); 
 (async () => {
   try {
     [staff, allProjects] = await Promise.all([
-      api('ts_staff?select=id,name,team&order=name'),
+      api('ts_staff?select=id,name,team&active=eq.true&order=name'),
       api('ts_projects?select=id,name,active,business_unit,finance_project')
     ]);
     allProjects.sort(byName);

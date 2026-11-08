@@ -118,6 +118,7 @@
     </div>
     <button id="addProj" hidden title="Add project to list" aria-label="Add project to list"><svg width="20" height="20" viewBox="100 70 860 900" fill="none" stroke="currentColor" stroke-width="64" stroke-linecap="round" style="display:block"><path d="M207 131H784M207 323H784M207 515H784M207 708H464M591 771H848M719 643V900"/></svg></button>
     <button id="copyPrev" title="Add the projects this person had on last month's timesheet (hours start at 0)">Copy last months projects</button>
+    <button id="addAllActive" title="Add every active project to this timesheet (hours start at 0)">Copy all active projects</button>
     <button class="danger" id="newProject">New project</button>
   </div>
   <div id="list"></div>
@@ -315,6 +316,7 @@ function applyLock() {
   sheet.querySelectorAll('.bar').forEach(b => { b.style.pointerEvents = locked ? 'none' : ''; });
   $('submit').disabled = locked;
   $('copyPrev').disabled = locked;
+  $('addAllActive').disabled = locked;
 }
 
 function markDirty() {
@@ -457,6 +459,18 @@ $('copyPrev').onclick = async () => {
     }
   } catch (e) { say('Copy failed: ' + e.message); }
   $('copyPrev').disabled = false;
+};
+
+$('addAllActive').onclick = () => {
+  const have = new Set(rows.map(r => r.project_id));
+  const add = allProjects.filter(p => p.active && !have.has(p.id));
+  if (!add.length) { say('All active projects are already on this timesheet.', true); return; }
+  for (const p of add) rows.push({ project_id: p.id, hours: 0 });
+  sortRows();
+  markDirty();
+  fillProjectPick();
+  render();
+  say('Added ' + add.length + ' active project' + (add.length === 1 ? '' : 's') + ' at 0 hours. Set the hours and press Save.', true);
 };
 
 $('newStaff').onclick = async () => {

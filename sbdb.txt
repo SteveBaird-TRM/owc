@@ -1,2 +1,0 @@
-Database URL -- https://joneetwkkgrqbxwhunut.supabase.co
-Publishable key -- sb_publishable_cjj3_AVozweyDGy2qqVP0Q_jMHFmnfk

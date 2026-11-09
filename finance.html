@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Finance</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 1000px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  .pick { display: flex; gap: .75rem; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
+  input[type=month] { font-size: 1rem; padding: .3rem; }
+  button { cursor: pointer; border: 1px solid #888; background: #f4f4f4; border-radius: 4px; padding: .3rem .7rem; font-size: 1rem; }
+  button:hover { background: #e6e6e6; }
+  button:disabled { cursor: default; opacity: .6; }
+  .toggle { min-width: 5rem; color: #fff; }
+  .toggle.open { background: #16a34a; border-color: #16a34a; }
+  .toggle.open:hover { background: #15803d; }
+  .toggle.locked { background: #dc2626; border-color: #dc2626; }
+  .toggle.locked:hover { background: #b91c1c; }
+  .note { color: #666; font-size: .9rem; }
+  #status { min-height: 1.2rem; font-size: .9rem; color: #b91c1c; }
+  #status.ok { color: #15803d; }
+  .topnav { display: flex; flex-wrap: wrap; gap: 1.25rem; margin-bottom: 1rem; font-size: .95rem; }
+  .topnav a { color: #2563eb; text-decoration: none; }
+  .topnav a:hover { text-decoration: underline; }
+  .topnav a[aria-current] { color: #222; font-weight: 600; }
+</style>
+</head>
+<body>
+<!-- <nav class="topnav">
+  <a href="admin.html">Timesheet</a>
+  <a href="staff.html">Staff</a>
+  <a href="projects.html">Projects</a>
+  <a href="months.html">Months</a>
+  <a href="reports.html">Reports</a>
+  <a href="finance.html" aria-current="page">Finance</a>
+</nav> -->
+<h1>Technology OWC: Data collector</h1>
+<p class="note">Download the month's hours for all teams, then switch the month to Locked to stop any hours being added, changed or removed. Switch it back to Open to allow corrections.</p>
+<div class="pick">
+  <button id="prev" title="Previous month">◀</button>
+  <input type="month" id="month">
+  <button id="next" title="Next month">▶</button>
+  <button id="lock" class="toggle open" title="Click to switch to Locked">Open</button>
+  <button id="xlsx" title="Download the month's hours per person per project (all teams) as an Excel spreadsheet">Download spreadsheet</button>
+</div>
+<div id="status"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<script>
+const BASE = 'https://joneetwkkgrqbxwhunut.supabase.co/rest/v1/';
+const KEY = 'sb_publishable_cjj3_AVozweyDGy2qqVP0Q_jMHFmnfk';
+const headers = { apikey: KEY, Authorization: 'Bearer ' + KEY, 'Content-Type': 'application/json' };
+
+const $ = id => document.getElementById(id);
+const byName = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+const sum = a => a.reduce((x, y) => x + y, 0);
+function say(msg, ok) { $('status').textContent = msg; $('status').className = ok ? 'ok' : ''; }
+
+async function api(path, opts = {}) {
+  const res = await fetch(BASE + path, { ...opts, headers: { ...headers, ...(opts.headers || {}) } });
+  if (!res.ok) throw new Error(await res.text());
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+const label = m => {
+  const [y, mo] = m.split('-').map(Number);
+  return new Date(y, mo - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+};
+
+let locked = false;
+
+function drawLock() {
+  $('lock').textContent = locked ? 'Locked' : 'Open';
+  $('lock').className = 'toggle ' + (locked ? 'locked' : 'open');
+  $('lock').title = locked ? 'Click to switch to Open' : 'Click to switch to Locked';
+  $('lock').disabled = false;
+}
+
+function shiftMonth(delta) {
+  const [y, m] = $('month').value.split('-').map(Number);
+  if (!y) return;
+  const d = new Date(y, m - 1 + delta, 1);
+  $('month').value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  say('');
+  loadLock();
+}
+$('prev').onclick = () => shiftMonth(-1);
+$('next').onclick = () => shiftMonth(1);
+
+async function loadLock() {
+  const month = $('month').value;
+  if (!month) return;
+  try {
+    const rows = await api(`ts_month_locks?select=locked&month=eq.${month}-01`);
+    locked = !!(rows[0] && rows[0].locked);
+    drawLock();
+  } catch (e) { say('Load failed: ' + e.message); }
+}
+
+$('lock').onclick = async () => {
+  const month = $('month').value;
+  if (!month) return;
+  $('lock').disabled = true;
+  const next = !locked;
+  try {
+    await api('ts_month_locks?on_conflict=month', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates' },
+      body: JSON.stringify({ month: month + '-01', locked: next, locked_at: new Date().toISOString() })
+    });
+    locked = next;
+    say(label(month + '-01') + (next ? ' is now locked.' : ' is now unlocked.'), true);
+  } catch (e) { say('Update failed: ' + e.message); }
+  drawLock();
+};
+
+// Same spreadsheet as the Reports page, with all teams
+async function downloadSpreadsheet() {
+  if (typeof XLSX === 'undefined') { say('Spreadsheet library did not load (check your internet connection).'); return; }
+  const month = $('month').value;
+  if (!month) return;
+  say('Preparing spreadsheet...', true);
+  let staff, projects, entries;
+  try {
+    [staff, projects, entries] = await Promise.all([
+      api('ts_staff?select=id,name,team'),
+      api('ts_projects?select=id,name,active,business_unit,finance_project'),
+      api(`ts_entries?select=staff_id,project_id,hours&month=eq.${month}-01`)
+    ]);
+  } catch (e) { say('Load failed: ' + e.message); return; }
+  staff.sort(byName);
+  projects.sort(byName);
+  const h = {};
+  for (const e of entries) (h[e.staff_id] ||= {})[e.project_id] = e.hours;
+  const rows = staff;
+  const cell = (r, p) => (h[r.id] || {})[p.id] || 0;
+  const projs = projects.filter(p => entries.some(e => e.project_id === p.id));
+
+  const col = i => { let s = ''; for (i++; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + (i - 1) % 26) + s; return s; };
+  const firstP = 2, lastP = 1 + projs.length, totalC = lastP + 1;
+  const n = rows.length;
+  const hasFin = projs.some(p => (p.finance_project || '').trim());
+  const o = hasFin ? 1 : 0;
+  const aoa = [];
+  if (hasFin) aoa.push(['Finance Project', '', ...projs.map(p => (p.finance_project || '').trim()), '']);
+  aoa.push(['Name', 'Staff ID', ...projs.map(p => p.name), 'Staff hours']);
+  rows.forEach((r, i) => {
+    const vals = projs.map(p => cell(r, p));
+    const line = [r.name, r.id, ...vals];
+    line.push(projs.length
+      ? { t: 'n', v: sum(vals), f: `SUM(${col(firstP)}${i + 2 + o}:${col(lastP)}${i + 2 + o})` }
+      : { t: 'n', v: 0 });
+    aoa.push(line);
+  });
+  const colSums = projs.map(p => sum(rows.map(r => cell(r, p))));
+  const foot = ['Project hours', ''];
+  projs.forEach((p, j) => foot.push(n ? { t: 'n', v: colSums[j], f: `SUM(${col(firstP + j)}${2 + o}:${col(firstP + j)}${n + 1 + o})` } : { t: 'n', v: 0 }));
+  foot.push(n ? { t: 'n', v: sum(colSums), f: `SUM(${col(totalC)}${2 + o}:${col(totalC)}${n + 1 + o})` } : { t: 'n', v: 0 });
+  aoa.push(foot);
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 28 }, { wch: 10 }, ...projs.map(() => ({ wch: 14 })), { wch: 12 }];
+  const setStyle = (r, c, s) => {
+    const a = XLSX.utils.encode_cell({ r, c });
+    (ws[a] ||= { t: 's', v: '' }).s = s;
+  };
+  for (let c = 0; c <= totalC; c++) {
+    if (hasFin) setStyle(0, c, { font: { bold: true, italic: true, color: { rgb: 'FF0000' } } });
+    setStyle(o, c, { font: { bold: true } });
+    setStyle(n + 1 + o, c, { font: { bold: true }, fill: { patternType: 'solid', fgColor: { rgb: 'D8E8F8' } } });
+  }
+  const staffFill = { patternType: 'solid', fgColor: { rgb: 'D0D0D0' } };
+  setStyle(o, totalC, { font: { bold: true }, fill: staffFill });
+  for (let r = 1 + o; r <= n + o; r++) setStyle(r, totalC, { font: { bold: true }, fill: staffFill });
+  const edge = { style: 'thin', color: { rgb: '000000' } };
+  const addBorder = (r, c, side) => {
+    const a = XLSX.utils.encode_cell({ r, c });
+    const cl = (ws[a] ||= { t: 's', v: '' });
+    cl.s = { ...(cl.s || {}), border: { ...((cl.s || {}).border || {}), [side]: edge } };
+  };
+  for (let c = 0; c <= totalC; c++) {
+    addBorder(o, c, 'bottom');
+    addBorder(n + 1 + o, c, 'top');
+  }
+  for (let r = 0; r <= n + 1 + o; r++) {
+    addBorder(r, 1, 'right');
+    addBorder(r, totalC, 'left');
+  }
+  ws['!freeze'] = { xSplit: 2, ySplit: 1 + o };
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Hours');
+  XLSX.writeFile(wb, `hours-${month}.xlsx`);
+  say('', true);
+}
+
+$('xlsx').onclick = downloadSpreadsheet;
+$('month').onchange = () => { say(''); loadLock(); };
+
+(() => {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - 1); // default to the previous month
+  $('month').value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  loadLock();
+})();
+</script>
+</body>
+</html>

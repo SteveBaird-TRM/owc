@@ -18,6 +18,12 @@
   .toggle.locked { background: #dc2626; border-color: #dc2626; }
   .toggle.locked:hover { background: #b91c1c; }
   .note { color: #666; font-size: .9rem; }
+  h2 { margin-top: 2rem; font-size: 1.1rem; }
+  .lookup { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+  .frame { border: 1px solid #ccc; border-radius: 6px; padding: .75rem; background: #fafafa; display: flex; flex-direction: column; gap: .4rem; min-width: 0; }
+  .frame label { font-size: .9rem; font-weight: 600; color: #555; }
+  .frame select { font-size: 1rem; padding: .3rem; width: 100%; }
+  .result { font-size: 1.6rem; font-weight: 700; }
   #status { min-height: 1.2rem; font-size: .9rem; color: #b91c1c; }
   #status.ok { color: #15803d; }
   .topnav { display: flex; flex-wrap: wrap; gap: 1.25rem; margin-bottom: 1rem; font-size: .95rem; }
@@ -45,6 +51,19 @@
   <button id="xlsx" title="Download the month's hours per person per project (all teams) as an Excel spreadsheet">Download spreadsheet</button>
 </div>
 <div id="status"></div>
+
+<h2>Look up hours</h2>
+<p class="note">Each box works on its own for the selected month, using only its own selection. "All" is every hour; "Unassigned" matches records where it isn't filled in.</p>
+<div class="lookup">
+  <div class="frame"><label for="f_fin">Finance Project</label><select id="f_fin"></select>
+    <div class="result"><span id="h_fin">0</span> hours</div><div class="note" id="n_fin"></div></div>
+  <div class="frame"><label for="f_bc">Budget Centre</label><select id="f_bc"></select>
+    <div class="result"><span id="h_bc">0</span> hours</div><div class="note" id="n_bc"></div></div>
+  <div class="frame"><label for="f_proj">Project name</label><select id="f_proj"></select>
+    <div class="result"><span id="h_proj">0</span> hours</div><div class="note" id="n_proj"></div></div>
+  <div class="frame"><label for="f_staff">Staff name</label><select id="f_staff"></select>
+    <div class="result"><span id="h_staff">0</span> hours</div><div class="note" id="n_staff"></div></div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script>
@@ -89,9 +108,73 @@ function shiftMonth(delta) {
 $('prev').onclick = () => shiftMonth(-1);
 $('next').onclick = () => shiftMonth(1);
 
+// ---- Look-up section: hours for the selected month filtered by finance project, budget centre, project and staff ----
+const NONE = '__none__';
+let L = { staff: [], projects: [], entries: [] };
+const lookups = [
+  { sel: 'f_fin',   hrs: 'h_fin',   note: 'n_fin',   test: (e, p, v) => v === NONE ? !(p.finance_project || '').trim() : (p.finance_project || '').trim() === v },
+  { sel: 'f_bc',    hrs: 'h_bc',    note: 'n_bc',    test: (e, p, v) => v === NONE ? !(p.budget_centre || '').trim() : (p.budget_centre || '').trim() === v },
+  { sel: 'f_proj',  hrs: 'h_proj',  note: 'n_proj',  test: (e, p, v) => String(p.id) === v },
+  { sel: 'f_staff', hrs: 'h_staff', note: 'n_staff', test: (e, p, v) => String(e.staff_id) === v }
+];
+
+function fillSelect(id, items, withUnassigned) { // items: [{value, text}]
+  const sel = $(id), cur = sel.value;
+  sel.innerHTML = '';
+  const add = (v, t) => { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); };
+  add('', 'All');
+  if (withUnassigned) add(NONE, 'Unassigned');
+  items.forEach(i => add(i.value, i.text));
+  sel.value = [...sel.options].some(o => o.value === cur) ? cur : '';
+}
+
+function fillLookup() {
+  const distinct = f => [...new Set(L.projects.map(p => (p[f] || '').trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })).map(v => ({ value: v, text: v }));
+  fillSelect('f_fin', distinct('finance_project'), L.projects.some(p => !(p.finance_project || '').trim()));
+  fillSelect('f_bc', distinct('budget_centre'), L.projects.some(p => !(p.budget_centre || '').trim()));
+  fillSelect('f_proj', L.projects.map(p => ({ value: String(p.id), text: p.name })), false);
+  fillSelect('f_staff', L.staff.map(s => ({ value: String(s.id), text: s.name })), false);
+  calcLookup();
+}
+
+// Each look-up uses only its own selection
+function calcOne(lk) {
+  const pmap = Object.fromEntries(L.projects.map(p => [String(p.id), p]));
+  const v = $(lk.sel).value;
+  let total = 0, count = 0;
+  for (const e of L.entries) {
+    const p = pmap[String(e.project_id)] || {};
+    if (v && !lk.test(e, p, v)) continue;
+    total += Number(e.hours) || 0;
+    count++;
+  }
+  $(lk.hrs).textContent = Math.round(total * 100) / 100;
+  $(lk.note).textContent = count + ' timesheet ' + (count === 1 ? 'entry' : 'entries');
+}
+function calcLookup() { lookups.forEach(calcOne); }
+lookups.forEach(lk => $(lk.sel).onchange = () => calcOne(lk));
+
+async function loadLookup() {
+  const month = $('month').value;
+  if (!month) return;
+  try {
+    const [staff, projects, entries] = await Promise.all([
+      api('ts_staff?select=id,name,team'),
+      api('ts_projects?select=id,name,active,business_unit,finance_project,budget_centre'),
+      api(`ts_entries?select=staff_id,project_id,hours&month=eq.${month}-01`)
+    ]);
+    staff.sort(byName);
+    projects.sort(byName);
+    L = { staff, projects, entries };
+    fillLookup();
+  } catch (e) { say('Look-up load failed: ' + e.message); }
+}
+
 async function loadLock() {
   const month = $('month').value;
   if (!month) return;
+  loadLookup();
   try {
     const rows = await api(`ts_month_locks?select=locked&month=eq.${month}-01`);
     locked = !!(rows[0] && rows[0].locked);

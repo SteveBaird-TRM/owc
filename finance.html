@@ -190,7 +190,7 @@ async function downloadSpreadsheet() {
   ws['!freeze'] = { xSplit: 2, ySplit: 1 + o };
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Hours');
-  XLSX.writeFile(wb, `hours-${month}.xlsx`);
+  XLSX.writeFile(wb, `tech-hours-${month}.xlsx`);
   say('', true);
 }
 

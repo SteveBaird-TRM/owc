@@ -207,9 +207,13 @@ function downloadSpreadsheet() {
   const n = m.rows.length;
   // Optional first row: finance project above each project name (only if any project has one)
   const hasFin = projs.some(p => (p.finance_project || '').trim());
-  const o = hasFin ? 1 : 0; // number of rows above the header row
+  // Optional row under it: budget centre (only if any project has one)
+  const hasBC = projs.some(p => (p.budget_centre || '').trim());
+  const bcRow = hasFin ? 1 : 0; // zero-based index of the budget centre row
+  const o = (hasFin ? 1 : 0) + (hasBC ? 1 : 0); // number of rows above the header row
   const aoa = [];
   if (hasFin) aoa.push(['Finance Project', '', ...projs.map(p => (p.finance_project || '').trim()), '']);
+  if (hasBC) aoa.push(['Budget Centre', '', ...projs.map(p => (p.budget_centre || '').trim()), '']);
   aoa.push(['Name', 'Staff ID', ...projs.map(p => p.name), 'Staff hours']);
   m.rows.forEach((r, i) => {
     const vals = projs.map(p => m.cell(r, p));
@@ -234,6 +238,7 @@ function downloadSpreadsheet() {
   };
   for (let c = 0; c <= totalC; c++) {
     if (hasFin) setStyle(0, c, { font: { bold: true, italic: true, color: { rgb: 'FF0000' } } });
+    if (hasBC) setStyle(bcRow, c, { font: { bold: true, italic: true, color: { rgb: '0000FF' } } });
     setStyle(o, c, { font: { bold: true } });
     setStyle(n + 1 + o, c, { font: { bold: true }, fill: { patternType: 'solid', fgColor: { rgb: 'D8E8F8' } } });
   }
@@ -308,7 +313,7 @@ $('month').onchange = load;
   try {
     [staff, projects] = await Promise.all([
       api('ts_staff?select=id,name,team'),
-      api('ts_projects?select=id,name,active,business_unit,finance_project')
+      api('ts_projects?select=id,name,active,business_unit,finance_project,budget_centre')
     ]);
     staff.sort(byName);
     projects.sort(byName);

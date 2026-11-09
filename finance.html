@@ -126,7 +126,7 @@ async function downloadSpreadsheet() {
   try {
     [staff, projects, entries] = await Promise.all([
       api('ts_staff?select=id,name,team'),
-      api('ts_projects?select=id,name,active,business_unit,finance_project'),
+      api('ts_projects?select=id,name,active,business_unit,finance_project,budget_centre'),
       api(`ts_entries?select=staff_id,project_id,hours&month=eq.${month}-01`)
     ]);
   } catch (e) { say('Load failed: ' + e.message); return; }
@@ -142,9 +142,12 @@ async function downloadSpreadsheet() {
   const firstP = 2, lastP = 1 + projs.length, totalC = lastP + 1;
   const n = rows.length;
   const hasFin = projs.some(p => (p.finance_project || '').trim());
-  const o = hasFin ? 1 : 0;
+  const hasBC = projs.some(p => (p.budget_centre || '').trim());
+  const bcRow = hasFin ? 1 : 0;
+  const o = (hasFin ? 1 : 0) + (hasBC ? 1 : 0);
   const aoa = [];
   if (hasFin) aoa.push(['Finance Project', '', ...projs.map(p => (p.finance_project || '').trim()), '']);
+  if (hasBC) aoa.push(['Budget Centre', '', ...projs.map(p => (p.budget_centre || '').trim()), '']);
   aoa.push(['Name', 'Staff ID', ...projs.map(p => p.name), 'Staff hours']);
   rows.forEach((r, i) => {
     const vals = projs.map(p => cell(r, p));
@@ -168,6 +171,7 @@ async function downloadSpreadsheet() {
   };
   for (let c = 0; c <= totalC; c++) {
     if (hasFin) setStyle(0, c, { font: { bold: true, italic: true, color: { rgb: 'FF0000' } } });
+    if (hasBC) setStyle(bcRow, c, { font: { bold: true, italic: true, color: { rgb: '0000FF' } } });
     setStyle(o, c, { font: { bold: true } });
     setStyle(n + 1 + o, c, { font: { bold: true }, fill: { patternType: 'solid', fgColor: { rgb: 'D8E8F8' } } });
   }

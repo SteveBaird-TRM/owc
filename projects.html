@@ -47,6 +47,7 @@
   <input type="text" id="name" placeholder="New project name" maxlength="100" autocomplete="off" required>
   <input type="text" id="bu" placeholder="Business Unit" maxlength="100" autocomplete="off">
   <input type="text" id="cap" placeholder="Finance Project" maxlength="100" autocomplete="off">
+  <input type="text" id="bc" placeholder="Budget Centre" maxlength="100" autocomplete="off">
   <button class="primary" type="submit">+ Add project</button>
 </form>
 <div id="status"></div>
@@ -82,10 +83,11 @@ function render() {
     row.className = 'row' + (p.active ? '' : ' inactive');
     row.innerHTML = '<span class="swatch"></span><span class="pname"></span>' +
       '<input type="text" class="bu" placeholder="Business Unit" maxlength="100">' +
-      '<input type="text" class="cap" placeholder="Finance Project" maxlength="100"><button></button>';
+      '<input type="text" class="cap" placeholder="Finance Project" maxlength="100">' +
+      '<input type="text" class="bc" placeholder="Budget Centre" maxlength="100"><button></button>';
     row.querySelector('.swatch').style.background = PALETTE[i % PALETTE.length];
     row.querySelector('.pname').textContent = p.name;
-    [['bu', 'business_unit'], ['cap', 'finance_project']].forEach(([cls, field]) => {
+    [['bu', 'business_unit'], ['cap', 'finance_project'], ['bc', 'budget_centre']].forEach(([cls, field]) => {
       const inp = row.querySelector('.' + cls);
       inp.value = p[field] || '';
       inp.onchange = async () => {
@@ -118,10 +120,10 @@ $('form').onsubmit = async e => {
   if (!name) return;
   if (projects.some(p => p.name.toLowerCase() === name.toLowerCase())) { say('A project with that name already exists.'); return; }
   try {
-    const [row] = await api('', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ name, business_unit: $('bu').value.trim() || null, finance_project: $('cap').value.trim() || null }) });
+    const [row] = await api('', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ name, business_unit: $('bu').value.trim() || null, finance_project: $('cap').value.trim() || null, budget_centre: $('bc').value.trim() || null }) });
     projects.push(row);
     sortProjects();
-    $('name').value = $('bu').value = $('cap').value = '';
+    $('name').value = $('bu').value = $('cap').value = $('bc').value = '';
     say('Added "' + row.name + '".', true);
     render();
   } catch (err) { say('Add failed: ' + err.message); }
@@ -129,7 +131,7 @@ $('form').onsubmit = async e => {
 
 (async () => {
   try {
-    projects = await api('?select=id,name,active,business_unit,finance_project');
+    projects = await api('?select=id,name,active,business_unit,finance_project,budget_centre');
     sortProjects();
     render();
   } catch (e) { say('Load failed: ' + e.message); }
